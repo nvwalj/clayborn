@@ -8,7 +8,7 @@
 //   1. NEVER pass --dangerously-skip-permissions. A remote caller must not be
 //      able to make this machine run arbitrary tools without a gate.
 //   2. Run in a dedicated workDir, not the repo and not your home directory.
-//      The default is .cardwall-work/, created on demand.
+//      The default is .clayborn-work/, created on demand.
 //   3. Tools are DENIED by default. A skill opts in to specific tools via its
 //      `tools` list; everything else is refused by --disallowed-tools.
 //
@@ -36,7 +36,7 @@ function resolveClaude() {
 
 export function createClaudeBackend(config) {
   const bin = resolveClaude();
-  const workDir = path.resolve(config.backend?.workDir || ".cardwall-work");
+  const workDir = path.resolve(config.backend?.workDir || ".clayborn-work");
   if (!existsSync(workDir)) mkdirSync(workDir, { recursive: true });
 
   const model = config.backend?.model || "claude-sonnet-5";
@@ -75,7 +75,7 @@ export function createClaudeBackend(config) {
       const child = spawn(bin, args, {
         cwd: workDir,
         stdio: ["pipe", "pipe", "pipe"],
-        env: { ...process.env, CARDWALL: "1" },
+        env: { ...process.env, CLAYBORN: "1" },
       });
 
       let stdout = "";

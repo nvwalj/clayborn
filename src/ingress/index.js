@@ -9,6 +9,14 @@
 //   named            — you own the hostname. cloudflared runs your named tunnel,
 //                      or you point any reverse proxy at the local port.
 //   none             — no ingress. LAN or localhost only.
+//   cardwall         — a hosted service that gives you a stable address and
+//                      answers on your behalf while this machine is asleep.
+//                      Optional, and deliberately so: see below.
+//
+// `quick`, `named` and `none` must always be first-class and must always work
+// with no account anywhere. cardwall is allowed to make things EASIER; it is
+// never allowed to become the thing that makes them POSSIBLE. Nothing in this
+// file may phone home, and nothing outside `mode: "cardwall"` may contact it.
 //
 // `none` is not a downgrade. For an agent on a work machine, or two machines on
 // the same network, it is the correct answer — A2A is just HTTP, and the card's
@@ -63,8 +71,38 @@ export async function startIngress(config, port, log = console.log) {
     };
   }
 
+  if (mode === "cardwall") return startCardwall(config, port, log);
+
   if (mode !== "quick") throw new Error(`unknown ingress.mode: ${mode}`);
   return startQuickTunnel(port, log);
+}
+
+/**
+ * Connect to a cardwall host.
+ *
+ * The contract, so it is written down before the code exists: this agent dials
+ * OUT and holds the connection open; the host forwards inbound A2A calls back
+ * down it and publishes a stable hostname that survives restarts and sleep.
+ * Same shape as cloudflared, and for the same reason — it is the only way to be
+ * reachable from behind NAT without opening a port.
+ *
+ * Not implemented yet. It fails loudly rather than degrading to something that
+ * looks like it worked: an agent that believes it is reachable and is not is
+ * worse than one that refused to start.
+ */
+async function startCardwall(config, port, log) {
+  const host = config.ingress?.host || "https://cardwall.ai";
+  if (!config.ingress?.token) {
+    throw new Error(
+      `ingress.mode "cardwall" requires ingress.token (or CLAYBORN_TOKEN).\n` +
+        `  Not ready yet — use "quick" for a free public URL with no account, ` +
+        `or "none" to stay on your own network.`
+    );
+  }
+  throw new Error(
+    `ingress.mode "cardwall" is not implemented in this release (host: ${host}).\n` +
+      `  "quick" gives you a public URL today with no account and no domain.`
+  );
 }
 
 function requireCloudflared() {
@@ -72,7 +110,7 @@ function requireCloudflared() {
   if (!bin) {
     throw new Error(
       "cloudflared not found. Install it (brew install cloudflared) or set " +
-        'ingress.mode to "none" in cardwall.config.json.'
+        'ingress.mode to "none" in clayborn.config.json.'
     );
   }
   return bin;

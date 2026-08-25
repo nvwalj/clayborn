@@ -1,25 +1,35 @@
-# cardwall
+# clayborn
 
-Run your own [A2A](https://a2a-protocol.org) agent on your own machine — and be findable.
+*Born of clay.* In the Chinese creation myth, Nüwa knelt by the river and
+shaped the first people out of yellow earth, one at a time, by hand — and when
+that grew slow she dipped a cord in the mud and flung it, and the flying drops
+became people too.
 
-Every A2A registry today lists *services*: hosted products with a domain, a
-company, and an SLA. Nothing serves the other case — a person running an agent
-on the laptop in front of them, behind NAT, on a machine that sleeps. That is
-what this is for.
+This is the cord. You already made your agent by hand; this is how everyone
+else makes theirs.
 
-Zero runtime dependencies. Node 20+. One command.
+---
+
+clayborn runs your own [A2A](https://a2a-protocol.org) agent on your own
+machine, and makes it findable. Zero runtime dependencies. Node 20+.
 
 ```bash
-git clone https://github.com/nvwalj/cardwall && cd cardwall
+git clone https://github.com/nvwalj/clayborn && cd clayborn
 node src/index.js
 ```
 
-That starts a conformant A2A agent on `127.0.0.1:8788` with the echo backend and
-no ingress — it answers the protocol correctly and exposes nothing. Point a
-client at it, watch a task go `SUBMITTED → WORKING → COMPLETED`, then decide
-what you actually want to run.
+That is the whole install. It starts a conformant A2A agent on
+`127.0.0.1:8788` with the echo backend and no ingress — it answers the protocol
+correctly and exposes nothing. Watch a task go `SUBMITTED → WORKING →
+COMPLETED`, then decide what you actually want to run.
 
----
+## Why this exists
+
+Every A2A registry today lists *services*: hosted products with a domain, a
+company, and an SLA. Nothing serves the other case — a person running an agent
+on the laptop in front of them, behind NAT, on a machine that sleeps.
+
+That is the case this is built for, and every default reflects it.
 
 ## What you get
 
@@ -30,8 +40,9 @@ what you actually want to run.
   `CancelTask`, with the spec's error codes.
 - **HTTP+JSON binding** — `POST /message:send`, `GET /tasks/{id}`, `GET /tasks`,
   `POST /tasks/{id}:cancel`.
-- **Full task lifecycle**, all eight states, with terminal states actually final.
-- **A backend that runs Claude Code** in a sandbox, or an echo backend that runs
+- **The full task lifecycle**, all eight states, with terminal states actually
+  final.
+- **A Claude Code backend** that runs in a sandbox, or an echo backend that runs
   nothing.
 - **Ingress that works from behind NAT**, with no account and no domain.
 
@@ -43,7 +54,7 @@ This is the only irreversible one. An Agent Card is a public API contract: once
 another machine can call `SendMessage`, whatever you declared is what you have
 promised.
 
-Skills live in `cardwall.config.json`. Each declares its own tool access:
+Skills live in `clayborn.config.json`. Each declares its own tool access:
 
 ```json
 {
@@ -88,17 +99,22 @@ the well-known URI and registries.
 > tunnel bypasses their perimeter controls by design. That is a policy question,
 > not a technical one, and it is yours to answer before you flip this to `quick`.
 
+There is a fourth mode, `cardwall`, for a hosted service that keeps a stable
+address answering while your machine sleeps. It is not implemented yet, and the
+rule it will be built under is written into `src/ingress/index.js`: **quick,
+named and none stay first-class and keep working with no account anywhere.** A
+hosted service may make this easier. It may never become the thing that makes it
+possible.
+
 ### 3. Who is allowed to call it?
 
 ```json
 "auth": { "mode": "bearer", "token": "…long random string…" }
 ```
 
-Or set `CARDWALL_TOKEN`. With `mode: "none"` anyone who learns the URL can spend
+Or set `CLAYBORN_TOKEN`. With `mode: "none"` anyone who learns the URL can spend
 your quota; the boot banner says so every time. The agent card is always served
 without auth — discovery depends on it.
-
----
 
 ## Backends
 
@@ -116,8 +132,6 @@ be verified — and tested — before you install anything or spend anything.
 ```json
 "backend": { "type": "claude", "model": "claude-sonnet-5", "timeoutSeconds": 300 }
 ```
-
----
 
 ## Checking cards
 
@@ -147,28 +161,6 @@ spec names as the single authoritative definition. We accept the pre-1.0 method
 spellings on input anyway — being lenient costs nothing and lets older clients
 talk to you — but never emit them.
 
----
-
-## The wall
-
-`registry/agents.json` is the directory: a plain JSON file, one entry per agent,
-added by pull request. No accounts, no moderation queue, no server to keep up.
-
-```json
-{
-  "name": "Weather Oracle",
-  "cardUrl": "https://weather.example.com/.well-known/agent-card.json",
-  "tags": ["weather"],
-  "addedAt": "2026-08-25"
-}
-```
-
-The card stays on *your* URL; the wall only holds a pointer. That also means
-listing here and on a hosted registry such as [a2a-registry.org][reg] are not in
-tension — an agent can be in both, and the card is the same card.
-
----
-
 ## Tests
 
 ```bash
@@ -184,4 +176,3 @@ MIT
 
 [scan]: https://apievangelist.com/2026/07/29/most-published-agent-cards-are-not-actually-a2a/
 [proto]: https://github.com/a2aproject/A2A/blob/main/specification/a2a.proto
-[reg]: https://www.a2a-registry.org/

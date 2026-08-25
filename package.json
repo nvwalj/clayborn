@@ -1,14 +1,14 @@
 {
-  "name": "cardwall",
+  "name": "clayborn",
   "version": "0.1.0",
-  "description": "Run your own A2A agent on your own machine, and be findable. Zero dependencies.",
+  "description": "Born of clay: run your own A2A agent on your own machine, and be findable. Zero dependencies.",
   "type": "module",
   "license": "MIT",
   "engines": {
     "node": ">=20"
   },
   "bin": {
-    "cardwall": "src/index.js"
+    "clayborn": "src/index.js"
   },
   "scripts": {
     "start": "node src/index.js",
@@ -25,12 +25,12 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/nvwalj/cardwall.git"
+    "url": "git+https://github.com/nvwalj/clayborn.git"
   },
   "files": [
     "src",
     "scripts",
-    "cardwall.config.example.json",
+    "clayborn.config.example.json",
     "README.md"
   ]
 }

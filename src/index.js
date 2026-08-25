@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// cardwall — put your own agent on the wall.
+// clayborn — put your own agent on the wall.
 //
 // Boot order matters and is deliberate:
 //   1. load + sanity-check config
@@ -27,18 +27,18 @@ import { createEchoBackend } from "./backend/echo.js";
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 export function loadConfig(file, log = console.log) {
-  let p = path.resolve(file || process.env.CARDWALL_CONFIG || path.join(ROOT, "cardwall.config.json"));
+  let p = path.resolve(file || process.env.CLAYBORN_CONFIG || path.join(ROOT, "clayborn.config.json"));
   if (!existsSync(p)) {
     // Fall back to the committed example so a fresh clone runs with zero setup.
     // The example is deliberately inert: echo backend, no ingress, no auth
     // needed — so "just run it" cannot accidentally expose anything.
-    const example = path.join(ROOT, "cardwall.config.example.json");
+    const example = path.join(ROOT, "clayborn.config.example.json");
     if (!file && existsSync(example)) {
-      log("[cardwall] no cardwall.config.json — using the example config (echo backend, no ingress)");
-      log("[cardwall] cp cardwall.config.example.json cardwall.config.json  to make it yours");
+      log("[clayborn] no clayborn.config.json — using the example config (echo backend, no ingress)");
+      log("[clayborn] cp clayborn.config.example.json clayborn.config.json  to make it yours");
       p = example;
     } else {
-      throw new Error(`config not found: ${p}\nCopy cardwall.config.example.json to cardwall.config.json.`);
+      throw new Error(`config not found: ${p}\nCopy clayborn.config.example.json to clayborn.config.json.`);
     }
   }
   let config;
@@ -65,8 +65,8 @@ export function loadConfig(file, log = console.log) {
     ids.add(s.id);
   }
   if (config.auth?.mode === "bearer" && !config.auth.token) {
-    const env = process.env.CARDWALL_TOKEN;
-    if (!env) throw new Error('auth.mode is "bearer" but no auth.token and no CARDWALL_TOKEN env var');
+    const env = process.env.CLAYBORN_TOKEN;
+    if (!env) throw new Error('auth.mode is "bearer" but no auth.token and no CLAYBORN_TOKEN env var');
     config.auth.token = env;
   }
   return config;
@@ -101,7 +101,7 @@ export async function start({ configFile, port: portOverride, log = console.log 
     server.once("error", reject);
     server.listen(port, "127.0.0.1", resolve);
   });
-  log(`[cardwall] local  ${`http://127.0.0.1:${port}`}`);
+  log(`[clayborn] local  ${`http://127.0.0.1:${port}`}`);
 
   let ingress;
   try {
@@ -114,7 +114,7 @@ export async function start({ configFile, port: portOverride, log = console.log 
   Object.assign(card, buildCard(config, ingress.url));
 
   const { ok, errors, warnings } = validateCard(card);
-  for (const w of warnings) log(`[cardwall] warning: ${w}`);
+  for (const w of warnings) log(`[clayborn] warning: ${w}`);
   if (!ok) {
     ingress.stop();
     server.close();
@@ -150,7 +150,7 @@ if (invokedDirectly) {
       const bye = async () => {
         if (closing) return;
         closing = true;
-        console.log("\n[cardwall] shutting down…");
+        console.log("\n[clayborn] shutting down…");
         await stop();
         process.exit(0);
       };
@@ -158,7 +158,7 @@ if (invokedDirectly) {
       process.on("SIGTERM", bye);
     },
     (err) => {
-      console.error(`\n[cardwall] ${err.message}\n`);
+      console.error(`\n[clayborn] ${err.message}\n`);
       process.exit(1);
     }
   );

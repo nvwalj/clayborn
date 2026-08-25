@@ -20,7 +20,7 @@ export function createEchoBackend() {
           resolve(
             `[echo backend] skill="${skill?.id ?? "none"}" received ${prompt.length} chars.\n\n` +
               `The protocol layer works. Set backend.type to "claude" in ` +
-              `cardwall.config.json to answer for real.\n\n--- your message ---\n${prompt}`
+              `clayborn.config.json to answer for real.\n\n--- your message ---\n${prompt}`
           );
         }, 120);
       });

@@ -54,7 +54,7 @@ export function createServer({ card, handlers, config, log = console.log }) {
     if (req.method === "GET" && route === "/") {
       return send(200, {
         ok: true,
-        service: "cardwall",
+        service: "clayborn",
         agent: card.name,
         card: "/.well-known/agent-card.json",
         endpoints: { jsonrpc: "/a2a", rest: ["/message:send", "/tasks", "/tasks/{id}"] },
@@ -68,7 +68,7 @@ export function createServer({ card, handlers, config, log = console.log }) {
       if (!timingSafeEqual(presented, token)) {
         res.writeHead(401, {
           "content-type": `${A2A_JSON}; charset=utf-8`,
-          "www-authenticate": 'Bearer realm="cardwall"',
+          "www-authenticate": 'Bearer realm="clayborn"',
         });
         return res.end(JSON.stringify({ error: { code: -32600, message: "Unauthorized" } }));
       }
