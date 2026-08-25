@@ -16,13 +16,13 @@
     "type": "echo",
     "_comment": "echo answers without a model so you can verify the protocol first. Switch to claude when you are ready.",
     "model": "claude-sonnet-5",
-    "workDir": ".cardwall-work",
+    "workDir": ".clayborn-work",
     "timeoutSeconds": 300
   },
 
   "auth": {
     "mode": "none",
-    "_comment": "Set to bearer and put a long random string in token (or the CARDWALL_TOKEN env var) before going public.",
+    "_comment": "Set to bearer and put a long random string in token (or the CLAYBORN_TOKEN env var) before going public.",
     "token": null
   },
 

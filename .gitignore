@@ -1,5 +1,10 @@
 node_modules/
-cardwall.config.json
-.cardwall-work/
+
+# Your own config — it holds your bearer token. Never commit it.
+clayborn.config.json
+
+# Whatever the agent produced while answering strangers.
+.clayborn-work/
+
 *.log
 .DS_Store
