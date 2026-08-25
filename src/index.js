@@ -1,0 +1,165 @@
+#!/usr/bin/env node
+// cardwall — put your own agent on the wall.
+//
+// Boot order matters and is deliberate:
+//   1. load + sanity-check config
+//   2. start the local server on loopback
+//   3. open ingress and learn the public URL
+//   4. build the agent card FROM that URL and validate it
+//   5. only then announce
+//
+// The card cannot be built before step 3 because supportedInterfaces[].url must
+// be the absolute public URL. Publishing a card that points at 127.0.0.1 is the
+// single most common way to be "listed but unreachable".
+
+import { readFileSync, existsSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { buildCard, validateCard } from "./card.js";
+import { TaskStore } from "./tasks.js";
+import { createHandlers } from "./rpc.js";
+import { createServer } from "./server.js";
+import { startIngress } from "./ingress/index.js";
+import { createClaudeBackend } from "./backend/claude.js";
+import { createEchoBackend } from "./backend/echo.js";
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+
+export function loadConfig(file, log = console.log) {
+  let p = path.resolve(file || process.env.CARDWALL_CONFIG || path.join(ROOT, "cardwall.config.json"));
+  if (!existsSync(p)) {
+    // Fall back to the committed example so a fresh clone runs with zero setup.
+    // The example is deliberately inert: echo backend, no ingress, no auth
+    // needed — so "just run it" cannot accidentally expose anything.
+    const example = path.join(ROOT, "cardwall.config.example.json");
+    if (!file && existsSync(example)) {
+      log("[cardwall] no cardwall.config.json — using the example config (echo backend, no ingress)");
+      log("[cardwall] cp cardwall.config.example.json cardwall.config.json  to make it yours");
+      p = example;
+    } else {
+      throw new Error(`config not found: ${p}\nCopy cardwall.config.example.json to cardwall.config.json.`);
+    }
+  }
+  let config;
+  try {
+    config = JSON.parse(readFileSync(p, "utf8"));
+  } catch (e) {
+    throw new Error(`config is not valid JSON (${p}): ${e.message}`);
+  }
+  for (const f of ["name", "description"]) {
+    if (!config[f]) throw new Error(`config is missing required field: ${f}`);
+  }
+  if (!Array.isArray(config.skills) || config.skills.length === 0) {
+    throw new Error(
+      "config.skills is empty. Declaring a skill is how you decide what this machine " +
+        "will do for strangers — it is not boilerplate. See README §What to expose."
+    );
+  }
+  const ids = new Set();
+  for (const s of config.skills) {
+    for (const f of ["id", "name", "description"]) {
+      if (!s?.[f]) throw new Error(`every skill needs "${f}" (offending skill: ${JSON.stringify(s).slice(0, 80)})`);
+    }
+    if (ids.has(s.id)) throw new Error(`duplicate skill id: ${s.id}`);
+    ids.add(s.id);
+  }
+  if (config.auth?.mode === "bearer" && !config.auth.token) {
+    const env = process.env.CARDWALL_TOKEN;
+    if (!env) throw new Error('auth.mode is "bearer" but no auth.token and no CARDWALL_TOKEN env var');
+    config.auth.token = env;
+  }
+  return config;
+}
+
+export function createBackend(config) {
+  const type = config.backend?.type || "echo";
+  if (type === "claude") return createClaudeBackend(config);
+  if (type === "echo") return createEchoBackend();
+  throw new Error(`unknown backend.type: ${type} (expected "claude" or "echo")`);
+}
+
+export async function start({ configFile, port: portOverride, log = console.log } = {}) {
+  const config = loadConfig(configFile, log);
+  const port = portOverride || Number(process.env.PORT) || config.port || 8788;
+
+  const backend = createBackend(config);
+  const store = new TaskStore({
+    max: config.tasks?.max,
+    ttlMs: config.tasks?.ttlHours ? config.tasks.ttlHours * 3600_000 : undefined,
+  });
+  const skillsById = new Map(config.skills.map((s) => [s.id, s]));
+
+  const handlers = createHandlers({ store, backend, config, skillsById });
+
+  // The card is filled in once ingress resolves; the server closes over this
+  // object so the /.well-known route always sees the final version.
+  const card = {};
+  const server = createServer({ card, handlers, config, log });
+
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(port, "127.0.0.1", resolve);
+  });
+  log(`[cardwall] local  ${`http://127.0.0.1:${port}`}`);
+
+  let ingress;
+  try {
+    ingress = await startIngress(config, port, log);
+  } catch (err) {
+    server.close();
+    throw err;
+  }
+
+  Object.assign(card, buildCard(config, ingress.url));
+
+  const { ok, errors, warnings } = validateCard(card);
+  for (const w of warnings) log(`[cardwall] warning: ${w}`);
+  if (!ok) {
+    ingress.stop();
+    server.close();
+    throw new Error(`agent card is not v1.0 conformant:\n  - ${errors.join("\n  - ")}`);
+  }
+
+  log("");
+  log(`  ${config.name}`);
+  log(`  public   ${ingress.url}`);
+  log(`  card     ${ingress.url}/.well-known/agent-card.json`);
+  log(`  jsonrpc  ${ingress.url}/a2a`);
+  log(`  backend  ${backend.describe()}`);
+  log(`  skills   ${config.skills.map((s) => s.id).join(", ")}`);
+  if (config.auth?.mode === "bearer") log(`  auth     bearer token required`);
+  else log(`  auth     NONE — anyone who knows the URL can call this agent`);
+  if (ingress.note) log(`  note     ${ingress.note}`);
+  log("");
+
+  const stop = async () => {
+    ingress.stop();
+    await new Promise((r) => server.close(r));
+  };
+  return { server, card, store, config, url: ingress.url, stop };
+}
+
+const invokedDirectly =
+  process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+
+if (invokedDirectly) {
+  start().then(
+    ({ stop }) => {
+      let closing = false;
+      const bye = async () => {
+        if (closing) return;
+        closing = true;
+        console.log("\n[cardwall] shutting down…");
+        await stop();
+        process.exit(0);
+      };
+      process.on("SIGINT", bye);
+      process.on("SIGTERM", bye);
+    },
+    (err) => {
+      console.error(`\n[cardwall] ${err.message}\n`);
+      process.exit(1);
+    }
+  );
+}

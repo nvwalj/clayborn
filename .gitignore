@@ -1,0 +1,5 @@
+node_modules/
+cardwall.config.json
+.cardwall-work/
+*.log
+.DS_Store

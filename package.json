@@ -1,0 +1,36 @@
+{
+  "name": "cardwall",
+  "version": "0.1.0",
+  "description": "Run your own A2A agent on your own machine, and be findable. Zero dependencies.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "cardwall": "src/index.js"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "check": "node scripts/check-card.js",
+    "test": "node --test \"test/*.test.js\""
+  },
+  "keywords": [
+    "a2a",
+    "agent2agent",
+    "agent",
+    "agent-card",
+    "self-hosted",
+    "claude"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nvwalj/cardwall.git"
+  },
+  "files": [
+    "src",
+    "scripts",
+    "cardwall.config.example.json",
+    "README.md"
+  ]
+}

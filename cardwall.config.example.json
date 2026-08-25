@@ -1,0 +1,51 @@
+{
+  "name": "My Agent",
+  "description": "A personal agent running on its owner's own machine.",
+  "version": "0.1.0",
+
+  "port": 8788,
+
+  "ingress": {
+    "mode": "none",
+    "_comment": "none = LAN/localhost only (safe default). quick = free public URL via cloudflared, no account needed. named = you own the hostname; then set publicUrl, and tunnel if cloudflared should run it.",
+    "publicUrl": null,
+    "tunnel": null
+  },
+
+  "backend": {
+    "type": "echo",
+    "_comment": "echo answers without a model so you can verify the protocol first. Switch to claude when you are ready.",
+    "model": "claude-sonnet-5",
+    "workDir": ".cardwall-work",
+    "timeoutSeconds": 300
+  },
+
+  "auth": {
+    "mode": "none",
+    "_comment": "Set to bearer and put a long random string in token (or the CARDWALL_TOKEN env var) before going public.",
+    "token": null
+  },
+
+  "skills": [
+    {
+      "id": "ask",
+      "name": "Ask a question",
+      "description": "Answers a general question in plain text. Runs with no tools: it can read nothing and write nothing.",
+      "tags": ["general", "question-answering"],
+      "examples": ["What is the A2A protocol?", "Summarise this paragraph."],
+      "default": true,
+      "tools": [],
+      "promptPrefix": "You are answering a request that arrived over the A2A protocol from another agent. Answer directly and concisely. You have no tools."
+    }
+  ],
+
+  "provider": {
+    "organization": null,
+    "url": null
+  },
+
+  "tasks": {
+    "max": 500,
+    "ttlHours": 6
+  }
+}
