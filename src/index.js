@@ -20,7 +20,7 @@ import { buildCard, validateCard } from "./card.js";
 import { TaskStore } from "./tasks.js";
 import { createHandlers } from "./rpc.js";
 import { createServer } from "./server.js";
-import { startIngress } from "./ingress/index.js";
+import { startIngress, bindHost, verifyReachable } from "./ingress/index.js";
 import { createClaudeBackend } from "./backend/claude.js";
 import { createEchoBackend } from "./backend/echo.js";
 import { loadCorpora } from "./corpus.js";
@@ -102,11 +102,12 @@ export async function start({ configFile, port: portOverride, log = console.log 
   const card = {};
   const server = createServer({ card, handlers, config, log });
 
+  const host = bindHost(config);
   await new Promise((resolve, reject) => {
     server.once("error", reject);
-    server.listen(port, "127.0.0.1", resolve);
+    server.listen(port, host, resolve);
   });
-  log(`[clayborn] local  ${`http://127.0.0.1:${port}`}`);
+  log(`[clayborn] local  http://${host === "0.0.0.0" ? "127.0.0.1" : host}:${port}  (bound ${host})`);
 
   let ingress;
   try {
@@ -124,6 +125,27 @@ export async function start({ configFile, port: portOverride, log = console.log 
     ingress.stop();
     server.close();
     throw new Error(`agent card is not v1.0 conformant:\n  - ${errors.join("\n  - ")}`);
+  }
+
+  // Go and check, rather than assert. See verifyReachable().
+  const reach = await verifyReachable(ingress.url, card.name, {
+    attempts: ingress.mode === "none" ? 1 : 3,
+  });
+  if (!reach.ok) {
+    const detail = `cannot reach my own card at ${reach.target} — ${reach.reason}`;
+    if (ingress.mode === "none") {
+      // On a LAN there is no round trip to blame: if this machine cannot reach
+      // the address it is about to publish, no other machine can either.
+      ingress.stop();
+      server.close();
+      throw new Error(
+        `${detail}\n  The card would advertise an address nothing can connect to.\n` +
+          `  If something else on this machine owns the port, or you are behind your own\n` +
+          `  proxy, set "host" and "ingress.publicUrl" in the config explicitly.`
+      );
+    }
+    log(`[clayborn] WARNING: ${detail}`);
+    log(`[clayborn] the tunnel reported success but nothing answers through it yet.`);
   }
 
   log("");

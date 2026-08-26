@@ -3,6 +3,8 @@
   "description": "A personal agent running on its owner's own machine.",
   "version": "0.1.0",
   "port": 8788,
+  "host": null,
+  "_host_comment": "null = decided by ingress.mode: \"none\" binds 0.0.0.0 so other machines on your network can reach you; the tunnel modes bind 127.0.0.1 because the tunnel connects from localhost. Set explicitly only if you know you need to.",
   "ingress": {
     "mode": "none",
     "_comment": "none = LAN/localhost only (safe default). quick = free public URL via cloudflared, no account needed. named = you own the hostname; then set publicUrl, and tunnel if cloudflared should run it.",
@@ -37,26 +39,6 @@
       "default": true,
       "tools": [],
       "promptPrefix": "You are answering a request that arrived over the A2A protocol from another agent. Answer directly and concisely. You have no tools."
-    },
-    {
-      "id": "corpus-example",
-      "name": "Answer from a local corpus",
-      "description": "Example of a grounded skill. Delete it or make it yours.",
-      "tags": [
-        "example"
-      ],
-      "_comment": "Retrieval happens in the server, before the model starts: matching passages are pasted into the prompt and the model still runs with tools:[]. That is why a grounded skill does NOT need Read/Grep — and must not have them, since --allowed-tools is a permission, not a filesystem sandbox.",
-      "tools": [],
-      "corpus": {
-        "file": "/absolute/path/to/your-corpus.jsonl",
-        "textField": "text",
-        "dateField": "date",
-        "linkField": "url",
-        "linkPrefix": "",
-        "maxSnippets": 8,
-        "maxChars": 700
-      },
-      "promptPrefix": "Answer only from the retrieved passages. Cite them by number. If they do not cover the question, say so instead of answering from memory."
     }
   ],
   "provider": {

@@ -40,6 +40,49 @@ function resolveCloudflared() {
 }
 
 /**
+ * Which local address the server must bind for a given ingress mode.
+ *
+ * This is not a preference, it is a correctness constraint. `none` mode puts
+ * this machine's LAN address in the card, so binding loopback would publish an
+ * address nothing can reach. The tunnel modes are the opposite: cloudflared
+ * connects from localhost, so binding anything wider only widens exposure.
+ *
+ * An explicit config.host always wins — someone behind their own proxy knows
+ * their setup better than this function does.
+ */
+export function bindHost(config) {
+  if (config.host) return config.host;
+  return (config.ingress?.mode || "quick") === "none" ? "0.0.0.0" : "127.0.0.1";
+}
+
+/**
+ * Fetch our own card from the URL we are about to publish.
+ *
+ * Shipped without this, and it cost someone an afternoon: the card advertised
+ * the LAN address while the server listened on loopback, so every other machine
+ * got connection refused — and nothing in the boot output hinted at it. An agent
+ * that believes it is reachable and is not is worse than one that refused to
+ * start, so we now go and check rather than assert.
+ */
+export async function verifyReachable(url, expectName, { attempts = 3, delayMs = 2000 } = {}) {
+  const target = `${url.replace(/\/+$/, "")}/.well-known/agent-card.json`;
+  let last = "";
+  for (let i = 0; i < attempts; i++) {
+    if (i) await new Promise((r) => setTimeout(r, delayMs));
+    try {
+      const res = await fetch(target, { signal: AbortSignal.timeout(6000) });
+      if (!res.ok) { last = `HTTP ${res.status}`; continue; }
+      const card = await res.json();
+      if (card?.name !== expectName) { last = `a different agent answered (${card?.name})`; continue; }
+      return { ok: true };
+    } catch (e) {
+      last = e?.name === "TimeoutError" ? "timed out" : e?.message || String(e);
+    }
+  }
+  return { ok: false, reason: last, target };
+}
+
+/**
  * @returns {Promise<{ url: string, mode: string, stop: () => void, note?: string }>}
  */
 export async function startIngress(config, port, log = console.log) {
@@ -49,6 +92,7 @@ export async function startIngress(config, port, log = console.log) {
     const url = config.ingress?.publicUrl || `http://${lanAddress()}:${port}`;
     return { url, mode, stop: () => {}, note: "no public ingress — reachable on this network only" };
   }
+
 
   if (mode === "named") {
     const url = config.ingress?.publicUrl;
