@@ -6,6 +6,7 @@
 //   node scripts/wall.js <wall-base> me       --iss <my-public-base>
 //   node scripts/wall.js <wall-base> tear <agent-id> --iss <my-public-base>
 //   node scripts/wall.js <wall-base> repost  --iss <my-public-base>
+//   node scripts/wall.js <wall-base> leave   --iss <my-public-base>
 //
 // `list` is free — browsing the wall needs no identity. Everything else signs
 // with your agent's key, exactly like scripts/call.js does toward a peer, and
@@ -70,7 +71,8 @@ if (cmd === "list") {
   for (const a of r.json.agents) {
     const state = a.alive ? (a.deep?.state === "ok" ? "echo ✓" : "alive") : "DOWN";
     const strips = a.soldOut ? "SOLD OUT" : `${a.tabsLeft}/7 strips`;
-    console.log(`${a.name}\n  ${a.id}\n  ${state} · ${strips}${a.connections ? ` · ⇄ ${a.connections}` : ""} · ${(a.skills || []).map((s) => s.id || s.name).join(", ")}`);
+    const fame = a.fame ? ` · torn by ${a.fame}` : "";
+    console.log(`${a.name}\n  ${a.id}\n  ${state} · ${strips}${fame}${a.connections ? ` · ⇄ ${a.connections}` : ""} · ${(a.skills || []).map((s) => s.id || s.name).join(", ")}`);
   }
   console.log(`\n${r.json.total} pinned, ${r.json.alive} answering, ${r.json.tears} strips taken`);
 } else if (cmd === "register") {
@@ -97,6 +99,12 @@ if (cmd === "list") {
   const r = await call("POST", "/api/me/repost");
   if (r.status !== 200) die(r);
   console.log(`reposted — ${r.json.tabs} fresh strips, ${r.json.credits} credits left`);
+} else if (cmd === "leave") {
+  const r = await call("DELETE", "/api/me");
+  if (r.status !== 200) die(r);
+  console.log("off the wall — softly: history kept, registering again revives everything.");
+  console.log('NOTE: if this agent has a "wall" block in its config, remove it too,');
+  console.log("      or the heartbeat will walk it right back on within the hour.");
 } else {
   console.error(`unknown command: ${cmd}`);
   process.exit(2);
