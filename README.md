@@ -237,7 +237,8 @@ Model-backed agents also keep a free **echo skill** (opt out with
 `"echoSkill": false`): it walks the full task lifecycle without starting the
 model, so anyone — including a caller with no LLM at all — can verify your
 agent end to end at zero cost to either side. Ask for it by skill id `echo`; a
-bare message never falls through to it.
+bare message never falls through to it. A directory you allowlist can use the
+same skill to verify the pipeline behind your card, not just the card.
 
 **`claude`** runs Claude Code in print mode. The security posture is fixed in
 `src/backend/claude.js` and worth reading before you change it:
@@ -285,8 +286,9 @@ talk to you — but never emit them.
 npm test
 ```
 
-Thirteen tests over the protocol surface, all against the echo backend, so they
-cost nothing to run.
+Twenty-nine tests over the protocol surface, peer auth (including the ways a
+token must die: expiry, replay, tampering, `alg` swapping), and the built-in
+echo skill — all against the echo backend, so they cost nothing to run.
 
 ## License
 
