@@ -23,6 +23,7 @@ import { createServer } from "./server.js";
 import { startIngress } from "./ingress/index.js";
 import { createClaudeBackend } from "./backend/claude.js";
 import { createEchoBackend } from "./backend/echo.js";
+import { loadCorpora } from "./corpus.js";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -90,7 +91,11 @@ export async function start({ configFile, port: portOverride, log = console.log 
   });
   const skillsById = new Map(config.skills.map((s) => [s.id, s]));
 
-  const handlers = createHandlers({ store, backend, config, skillsById });
+  // Corpora load at boot: a missing or unreadable corpus should stop the
+  // process now, not surface as a confusing answer to a stranger later.
+  const corpora = loadCorpora(config, log);
+
+  const handlers = createHandlers({ store, backend, config, skillsById, corpora });
 
   // The card is filled in once ingress resolves; the server closes over this
   // object so the /.well-known route always sees the final version.

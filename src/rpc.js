@@ -51,7 +51,7 @@ const ALIASES = {
   "agent/getAuthenticatedExtendedCard": "GetExtendedAgentCard",
 };
 
-export function createHandlers({ store, backend, config, skillsById }) {
+export function createHandlers({ store, backend, config, skillsById, corpora }) {
   /** SendMessage — creates a Task, runs the backend, returns the Task immediately. */
   async function SendMessage(params) {
     const message = params?.message;
@@ -84,6 +84,18 @@ export function createHandlers({ store, backend, config, skillsById }) {
     }
 
     const skill = resolveSkill(params, prompt, skillsById, config);
+
+    // If the skill is grounded in a corpus, retrieve HERE and paste the
+    // passages into the prompt. The model still runs with no tools, so a caller
+    // cannot redirect it at anything we did not hand it. See src/corpus.js.
+    let grounding = null;
+    const corpus = skill && corpora?.get(skill.id);
+    if (corpus) {
+      grounding = corpus.context(prompt, {
+        limit: skill.corpus.maxSnippets || 8,
+        maxChars: skill.corpus.maxChars || 700,
+      });
+    }
     const inbound = { ...message, role: message.role || "ROLE_USER" };
 
     const task = message.taskId
@@ -93,9 +105,22 @@ export function createHandlers({ store, backend, config, skillsById }) {
 
     store.setState(task.id, STATE.WORKING);
 
+    const parts = [];
+    if (skill?.promptPrefix) parts.push(skill.promptPrefix);
+    if (grounding) {
+      parts.push(
+        `Passages retrieved from the corpus, most relevant first. Answer ONLY from these; ` +
+          `if they do not contain the answer, say so plainly rather than filling the gap ` +
+          `from memory. Cite the numbered passages you used.\n\n${grounding}`
+      );
+    } else if (corpus) {
+      parts.push("The corpus returned no passages matching this question. Say so; do not answer from memory.");
+    }
+    parts.push(grounding ? `Question: ${prompt}` : prompt);
+
     const { promise, abort } = backend.run({
       skill,
-      prompt: skill?.promptPrefix ? `${skill.promptPrefix}\n\n${prompt}` : prompt,
+      prompt: parts.join("\n\n---\n\n"),
       onProgress: () => {},
     });
     store.track(task.id, abort);
