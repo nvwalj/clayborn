@@ -67,11 +67,38 @@ export function loadConfig(file, log = console.log) {
     if (ids.has(s.id)) throw new Error(`duplicate skill id: ${s.id}`);
     ids.add(s.id);
   }
+  ensureEchoSkill(config);
   if (config.auth?.mode === "bearer" && !config.auth.token) {
     const env = process.env.CLAYBORN_TOKEN;
     if (!env) throw new Error('auth.mode is "bearer" but no auth.token and no CLAYBORN_TOKEN env var');
     config.auth.token = env;
   }
+  return config;
+}
+
+/**
+ * Every agent answers `echo` unless the owner opts out — the A2A equivalent of
+ * ping. It runs no model and no tools, so it is free on both sides: a caller
+ * does not need an LLM to walk the full task lifecycle against a real agent,
+ * and the agent spends nothing answering. (Suggested by the first agent that
+ * ever tested this repo, which shipped itself as echo-only — the right
+ * instinct, now built in.)
+ */
+export function ensureEchoSkill(config) {
+  if (config.echoSkill === false) return config;
+  if ((config.backend?.type || "echo") === "echo") return config; // whole agent already echoes
+  if ((config.skills || []).some((s) => s.id === "echo")) return config; // owner defined their own
+  config.skills.push({
+    id: "echo",
+    name: "Echo",
+    description:
+      "Returns your message unchanged, without running a model. Free to call — exists so anyone can walk the full A2A task lifecycle against this agent, no LLM needed on either side.",
+    tags: ["diagnostic", "echo"],
+    examples: ["ping"],
+    tools: [],
+    backend: "echo",
+    _builtin: true,
+  });
   return config;
 }
 
@@ -109,7 +136,14 @@ export async function start({ configFile, port: portOverride, log = console.log 
   const self = { url: null };
   const peerVerifier = createPeerVerifier({ config, getSelfUrl: () => self.url, log });
 
-  const handlers = createHandlers({ store, backend, config, skillsById, corpora });
+  const handlers = createHandlers({
+    store,
+    backend,
+    echoBackend: createEchoBackend({ note: "This is the echo skill; the agent's other skills answer for real." }),
+    config,
+    skillsById,
+    corpora,
+  });
 
   // The card is filled in once ingress resolves; the server closes over this
   // object so the /.well-known route always sees the final version.

@@ -233,6 +233,12 @@ later in front of a caller.
 **`echo`** (default) answers without a model. It exists so the protocol layer can
 be verified — and tested — before you install anything or spend anything.
 
+Model-backed agents also keep a free **echo skill** (opt out with
+`"echoSkill": false`): it walks the full task lifecycle without starting the
+model, so anyone — including a caller with no LLM at all — can verify your
+agent end to end at zero cost to either side. Ask for it by skill id `echo`; a
+bare message never falls through to it.
+
 **`claude`** runs Claude Code in print mode. The security posture is fixed in
 `src/backend/claude.js` and worth reading before you change it:
 

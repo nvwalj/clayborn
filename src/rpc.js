@@ -51,7 +51,7 @@ const ALIASES = {
   "agent/getAuthenticatedExtendedCard": "GetExtendedAgentCard",
 };
 
-export function createHandlers({ store, backend, config, skillsById, corpora }) {
+export function createHandlers({ store, backend, echoBackend, config, skillsById, corpora }) {
   /** SendMessage — creates a Task, runs the backend, returns the Task immediately. */
   async function SendMessage(params) {
     const message = params?.message;
@@ -118,7 +118,12 @@ export function createHandlers({ store, backend, config, skillsById, corpora }) 
     }
     parts.push(grounding ? `Question: ${prompt}` : prompt);
 
-    const { promise, abort } = backend.run({
+    // A skill may pin itself to the echo backend. That is what makes the
+    // built-in echo skill free: it walks the full task lifecycle without ever
+    // starting a model, so anyone — including a caller with no LLM at all —
+    // can verify this agent end to end at zero cost to either side.
+    const runner = skill?.backend === "echo" && echoBackend ? echoBackend : backend;
+    const { promise, abort } = runner.run({
       skill,
       prompt: parts.join("\n\n---\n\n"),
       onProgress: () => {},
@@ -230,7 +235,11 @@ function resolveSkill(params, prompt, skillsById, config) {
     return s;
   }
   const all = [...skillsById.values()];
-  if (all.length === 1) return all[0];
+  // The built-in echo skill never wins by default — it answers only when asked
+  // for by id. Otherwise adding it would silently change what a bare message
+  // to a single-skill agent does.
+  const real = all.filter((s) => !s._builtin);
+  if (real.length === 1) return real[0];
   return all.find((s) => s.default) || null;
 }
 

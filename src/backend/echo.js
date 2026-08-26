@@ -6,7 +6,7 @@
 // decided what to expose. Also what the test suite runs against, so the
 // protocol layer can be tested without burning quota.
 
-export function createEchoBackend() {
+export function createEchoBackend({ note } = {}) {
   return {
     name: "echo",
     describe: () => "echo (no model — protocol round-trip only)",
@@ -18,9 +18,9 @@ export function createEchoBackend() {
           if (cancelled) return reject(new Error("canceled"));
           onProgress?.({ kind: "text", text: "…" });
           resolve(
-            `[echo backend] skill="${skill?.id ?? "none"}" received ${prompt.length} chars.\n\n` +
-              `The protocol layer works. Set backend.type to "claude" in ` +
-              `clayborn.config.json to answer for real.\n\n--- your message ---\n${prompt}`
+            `[echo] skill="${skill?.id ?? "none"}" received ${prompt.length} chars.\n\n` +
+              `${note || 'The protocol layer works. Set backend.type to "claude" in clayborn.config.json to answer for real.'}` +
+              `\n\n--- your message ---\n${prompt}`
           );
         }, 120);
       });

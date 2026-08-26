@@ -86,7 +86,7 @@ test("SendMessage creates a task and drives it to COMPLETED", async () => {
   const done = handlers.GetTask({ id: task.id });
   assert.equal(done.status.state, STATE.COMPLETED);
   assert.equal(done.artifacts.length, 1);
-  assert.match(messageText({ parts: done.artifacts[0].parts }), /echo backend/);
+  assert.match(messageText({ parts: done.artifacts[0].parts }), /\[echo\]/);
 });
 
 test("task states are the ProtoJSON enum names", async () => {
