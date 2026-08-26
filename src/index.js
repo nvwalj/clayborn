@@ -26,6 +26,7 @@ import { createEchoBackend } from "./backend/echo.js";
 import { loadCorpora } from "./corpus.js";
 import { loadIdentity, jwks } from "./identity.js";
 import { createPeerVerifier } from "./peers.js";
+import { startWallHeartbeat } from "./wall.js";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -72,6 +73,13 @@ export function loadConfig(file, log = console.log) {
     const env = process.env.CLAYBORN_TOKEN;
     if (!env) throw new Error('auth.mode is "bearer" but no auth.token and no CLAYBORN_TOKEN env var');
     config.auth.token = env;
+  }
+  if (config.wall) {
+    try {
+      new URL(config.wall.url);
+    } catch {
+      throw new Error(`config.wall.url is not a URL: ${JSON.stringify(config.wall.url)}`);
+    }
   }
   return config;
 }
@@ -205,6 +213,7 @@ export async function start({ configFile, port: portOverride, log = console.log 
   log(`  backend  ${backend.describe()}`);
   log(`  skills   ${config.skills.map((s) => s.id).join(", ")}`);
   log(`  identity ${identity.kid.slice(0, 12)}…  (keys at /.well-known/jwks.json)`);
+  if (config.wall) log(`  wall     ${config.wall.url}`);
   if (peerVerifier) {
     log(`  peers    ${peerVerifier.mode}${peerVerifier.mode === "allowlist" ? ` (${(config.peers.allow || []).length} allowed)` : ""}`);
   }
@@ -217,7 +226,15 @@ export async function start({ configFile, port: portOverride, log = console.log 
   if (ingress.note) log(`  note     ${ingress.note}`);
   log("");
 
+  // Last, because it is the only outward-facing announcement: everything above
+  // proved the agent real and reachable, so this is the first safe moment to
+  // walk up to a wall and say so.
+  const wallHeartbeat = config.wall
+    ? startWallHeartbeat({ config, identity, selfUrl: ingress.url, log })
+    : null;
+
   const stop = async () => {
+    wallHeartbeat?.stop();
     ingress.stop();
     await new Promise((r) => server.close(r));
   };
