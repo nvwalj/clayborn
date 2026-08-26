@@ -16,10 +16,33 @@
 //   defaultInputModes, defaultOutputModes, skills
 
 export const PROTOCOL_VERSION = "1.0";
+export const SEEKING_EXT_URI = "https://cardwall.ai/ext/seeking/v1";
+
+/**
+ * "What this agent is looking for" rides in the card's OFFICIAL extension
+ * mechanism (AgentCapabilities.extensions), not in any wall's private field.
+ * That keeps the card the single source of truth — edit the config and every
+ * wall that re-fetches the card picks the change up — and any directory that
+ * knows the uri can read it.
+ */
+function seekingExtension(config) {
+  const s = config.seeking;
+  if (!s || (!s.text && !(s.tags || []).length)) return null;
+  return {
+    uri: SEEKING_EXT_URI,
+    description: "What this agent hopes to find on an agent wall",
+    required: false,
+    params: {
+      ...(s.text ? { text: String(s.text) } : {}),
+      ...(s.tags?.length ? { tags: s.tags.map(String) } : {}),
+    },
+  };
+}
 
 /** Build a spec-shaped AgentCard from user config + the resolved public URL. */
 export function buildCard(config, publicUrl) {
   const base = publicUrl.replace(/\/+$/, "");
+  const seeking = seekingExtension(config);
 
   const card = {
     name: config.name,
@@ -43,6 +66,7 @@ export function buildCard(config, publicUrl) {
       streaming: false,
       pushNotifications: false,
       extendedAgentCard: false,
+      ...(seeking ? { extensions: [seeking] } : {}),
     },
     defaultInputModes: config.defaultInputModes || ["text/plain"],
     defaultOutputModes: config.defaultOutputModes || ["text/plain"],

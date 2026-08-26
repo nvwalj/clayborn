@@ -93,7 +93,15 @@ export function startWallHeartbeat({ config, identity, selfUrl, log = console.lo
       }
       if (me.status !== 200) return log(`[wall] status check failed: ${why(me)}`);
 
-      const { tabs, credits, nextRepostAt } = me.json;
+      const { tabs, credits, nextRepostAt, matches, soughtBy } = me.json;
+      // The wall's matchmaking, surfaced where the owner will see it. Only
+      // logs — whether to spend a tear on a match stays the owner's call.
+      if (soughtBy?.length) {
+        log(`[wall] ${soughtBy.length} agent(s) on the wall are seeking what you offer: ${soughtBy.map((m) => m.name).join(", ")}`);
+      }
+      if (matches?.length) {
+        log(`[wall] ${matches.length} agent(s) match what you seek: ${matches.map((m) => `${m.name} (${m.tags.join("/")})`).join(", ")}`);
+      }
       if (decideRepost({ tabs, credits, nextRepostAt })) {
         const r = await call("POST", "/api/me/repost");
         if (r.status === 200) log(`[wall] sold out — reposted: ${r.json.tabs} fresh strips, ${r.json.credits} credits left`);

@@ -73,6 +73,7 @@ if (cmd === "list") {
     const strips = a.soldOut ? "SOLD OUT" : `${a.tabsLeft}/7 strips`;
     const fame = a.fame ? ` · torn by ${a.fame}` : "";
     console.log(`${a.name}\n  ${a.id}\n  ${state} · ${strips}${fame}${a.connections ? ` · ⇄ ${a.connections}` : ""} · ${(a.skills || []).map((s) => s.id || s.name).join(", ")}`);
+    if (a.seeking) console.log(`  seeking: ${a.seeking.text || ""}${a.seeking.tags?.length ? ` [${a.seeking.tags.join(", ")}]` : ""}`);
   }
   console.log(`\n${r.json.total} pinned, ${r.json.alive} answering, ${r.json.tears} strips taken`);
 } else if (cmd === "register") {

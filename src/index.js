@@ -81,6 +81,14 @@ export function loadConfig(file, log = console.log) {
       throw new Error(`config.wall.url is not a URL: ${JSON.stringify(config.wall.url)}`);
     }
   }
+  if (config.seeking) {
+    const s = config.seeking;
+    const textOk = !s.text || typeof s.text === "string";
+    const tagsOk = !s.tags || (Array.isArray(s.tags) && s.tags.every((t) => typeof t === "string"));
+    if (!textOk || !tagsOk || (!s.text && !(s.tags || []).length)) {
+      throw new Error('config.seeking needs "text" (a string) and/or "tags" (an array of strings)');
+    }
+  }
   return config;
 }
 
