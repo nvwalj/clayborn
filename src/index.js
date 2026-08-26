@@ -27,11 +27,19 @@ import { loadCorpora } from "./corpus.js";
 import { loadIdentity, jwks } from "./identity.js";
 import { createPeerVerifier } from "./peers.js";
 import { startWallHeartbeat } from "./wall.js";
+import { publishToPages } from "./publish.js";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 export function loadConfig(file, log = console.log) {
-  let p = path.resolve(file || process.env.CLAYBORN_CONFIG || path.join(ROOT, "clayborn.config.json"));
+  // Current directory first, so `npx clayborn start` finds the config where
+  // the USER is, not where npm cached the code. The repo root keeps working
+  // for a plain clone.
+  const cwdConfig = path.resolve("clayborn.config.json");
+  const rootConfig = path.join(ROOT, "clayborn.config.json");
+  let p = path.resolve(
+    file || process.env.CLAYBORN_CONFIG || (existsSync(cwdConfig) ? cwdConfig : rootConfig)
+  );
   if (!existsSync(p)) {
     // Fall back to the committed example so a fresh clone runs with zero setup.
     // The example is deliberately inert: echo backend, no ingress, no auth
@@ -89,6 +97,17 @@ export function loadConfig(file, log = console.log) {
       throw new Error('config.seeking needs "text" (a string) and/or "tags" (an array of strings)');
     }
   }
+  if (config.publish) {
+    if (config.publish.mode !== "github-pages") {
+      throw new Error(`unknown publish.mode: ${JSON.stringify(config.publish.mode)} (only "github-pages")`);
+    }
+    if (!config.publish.repoDir) {
+      throw new Error("publish.repoDir is required — a local clone of your Pages repo");
+    }
+  }
+  // The identity keypair lives next to whichever config defined the agent —
+  // for an npx run that is the user's directory, never npm's cache.
+  if (!config.identityFile) config.identityFile = path.join(path.dirname(p), "clayborn.identity.json");
   return config;
 }
 
@@ -141,11 +160,9 @@ export async function start({ configFile, port: portOverride, log = console.log 
   const corpora = loadCorpora(config, log);
 
   // Identity is unconditional — even an agent with peer auth off has a keypair,
-  // so it can CALL peers that require one. Costs a 3KB file.
-  const identity = loadIdentity(
-    path.resolve(config.identityFile || path.join(ROOT, "clayborn.identity.json")),
-    log
-  );
+  // so it can CALL peers that require one. Costs a 3KB file. loadConfig has
+  // already defaulted identityFile to sit next to the config.
+  const identity = loadIdentity(path.resolve(config.identityFile), log);
 
   // The verifier needs to know our public URL for the aud check, but that URL
   // only exists after ingress resolves — hence the ref, same pattern as `card`.
@@ -213,6 +230,22 @@ export async function start({ configFile, port: portOverride, log = console.log 
     log(`[clayborn] the tunnel reported success but nothing answers through it yet.`);
   }
 
+  // With publish configured, the STABLE address — the identity peers sign as
+  // and walls verify against — is the Pages URL; the ingress URL is just
+  // today's door, recorded inside the card. Publish failures are fatal: the
+  // config promised an identity we could not put up.
+  let identityUrl = ingress.url;
+  if (config.publish) {
+    try {
+      const pub = await publishToPages({ config, card, jwksDoc: jwks(identity), log });
+      identityUrl = pub.base;
+    } catch (err) {
+      ingress.stop();
+      server.close();
+      throw new Error(`publish failed: ${err.message}`);
+    }
+  }
+
   log("");
   log(`  ${config.name}`);
   log(`  public   ${ingress.url}`);
@@ -221,6 +254,7 @@ export async function start({ configFile, port: portOverride, log = console.log 
   log(`  backend  ${backend.describe()}`);
   log(`  skills   ${config.skills.map((s) => s.id).join(", ")}`);
   log(`  identity ${identity.kid.slice(0, 12)}…  (keys at /.well-known/jwks.json)`);
+  if (config.publish) log(`  publish  ${identityUrl}  — the stable address; sign and register as this`);
   if (config.wall) log(`  wall     ${config.wall.url}`);
   if (peerVerifier) {
     log(`  peers    ${peerVerifier.mode}${peerVerifier.mode === "allowlist" ? ` (${(config.peers.allow || []).length} allowed)` : ""}`);
@@ -236,9 +270,9 @@ export async function start({ configFile, port: portOverride, log = console.log 
 
   // Last, because it is the only outward-facing announcement: everything above
   // proved the agent real and reachable, so this is the first safe moment to
-  // walk up to a wall and say so.
+  // walk up to a wall and say so. The wall knows us by the stable address.
   const wallHeartbeat = config.wall
-    ? startWallHeartbeat({ config, identity, selfUrl: ingress.url, log })
+    ? startWallHeartbeat({ config, identity, selfUrl: identityUrl, log })
     : null;
 
   const stop = async () => {

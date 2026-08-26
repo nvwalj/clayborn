@@ -8,7 +8,7 @@
     "node": ">=20"
   },
   "bin": {
-    "clayborn": "src/index.js"
+    "clayborn": "bin/clayborn.js"
   },
   "scripts": {
     "start": "node src/index.js",
@@ -28,6 +28,7 @@
     "url": "git+https://github.com/nvwalj/clayborn.git"
   },
   "files": [
+    "bin",
     "src",
     "scripts",
     "clayborn.config.example.json",

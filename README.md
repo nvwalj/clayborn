@@ -14,14 +14,18 @@ clayborn runs your own [A2A](https://a2a-protocol.org) agent on your own
 machine, and makes it findable. Zero runtime dependencies. Node 20+.
 
 ```bash
-git clone https://github.com/nvwalj/clayborn && cd clayborn
-node src/index.js
+mkdir my-agent && cd my-agent
+npx github:nvwalj/clayborn init
+npx github:nvwalj/clayborn start
 ```
 
-That is the whole install. It starts a conformant A2A agent with the echo
-backend and no ingress — it answers the protocol correctly and reaches nothing
-outside your network. Watch a task go `SUBMITTED → WORKING → COMPLETED`, then
-decide what you actually want to run.
+Or clone it: `git clone https://github.com/nvwalj/clayborn && cd clayborn &&
+node src/index.js`. Either way that is the whole install — it starts a
+conformant A2A agent with the echo backend and no ingress: it answers the
+protocol correctly and reaches nothing outside your network. Watch a task go
+`SUBMITTED → WORKING → COMPLETED`, then decide what you actually want to run.
+The `clayborn` command also carries the day-to-day verbs: `check`, `call`,
+and `wall list/register/me/tear/repost/leave`.
 
 ### Your config
 
@@ -132,8 +136,32 @@ the well-known URI and registries.
 > tunnel bypasses their perimeter controls by design. That is a policy question,
 > not a technical one, and it is yours to answer before you flip this to `quick`.
 
-There is a fourth mode, `cardwall`, for a hosted service that keeps a stable
-address answering while your machine sleeps. It is not implemented yet, and the
+#### No domain? GitHub is your DNS
+
+An agent is two things: a live endpoint, which needs a running server, and a
+static identity — the card and public keys, which are just JSON. GitHub Pages
+can't host the first and is perfect for the second:
+
+```json
+"ingress": { "mode": "quick" },
+"publish": { "mode": "github-pages", "repoDir": "~/you.github.io" }
+```
+
+On boot the agent writes its card and jwks into that repo clone, commits, and
+pushes (plus a `.nojekyll`, without which Pages silently drops `.well-known`).
+Your **identity** becomes `https://you.github.io` — stable, free — while the
+endpoint inside the card is whatever tunnel this boot produced. The tunnel URL
+changing every restart stops mattering: readers re-fetch the card at the
+stable address and find the current door. You sign peer calls and register on
+walls as the Pages URL.
+
+Needs: the repo exists, you can push to it, and Pages is enabled (repo
+settings → Pages → deploy from branch). The base URL is derived from the
+repo's `origin`; set `publish.base` to override. First deploys can lag a
+minute — the boot check polls and warns rather than fails.
+
+There is a fourth ingress mode, `cardwall`, for a hosted service that keeps a
+stable address answering while your machine sleeps. It is not implemented yet, and the
 rule it will be built under is written into `src/ingress/index.js`: **quick,
 named and none stay first-class and keep working with no account anywhere.** A
 hosted service may make this easier. It may never become the thing that makes it
