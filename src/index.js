@@ -24,6 +24,8 @@ import { startIngress, bindHost, verifyReachable } from "./ingress/index.js";
 import { createClaudeBackend } from "./backend/claude.js";
 import { createEchoBackend } from "./backend/echo.js";
 import { loadCorpora } from "./corpus.js";
+import { loadIdentity, jwks } from "./identity.js";
+import { createPeerVerifier } from "./peers.js";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -95,12 +97,24 @@ export async function start({ configFile, port: portOverride, log = console.log 
   // process now, not surface as a confusing answer to a stranger later.
   const corpora = loadCorpora(config, log);
 
+  // Identity is unconditional — even an agent with peer auth off has a keypair,
+  // so it can CALL peers that require one. Costs a 3KB file.
+  const identity = loadIdentity(
+    path.resolve(config.identityFile || path.join(ROOT, "clayborn.identity.json")),
+    log
+  );
+
+  // The verifier needs to know our public URL for the aud check, but that URL
+  // only exists after ingress resolves — hence the ref, same pattern as `card`.
+  const self = { url: null };
+  const peerVerifier = createPeerVerifier({ config, getSelfUrl: () => self.url, log });
+
   const handlers = createHandlers({ store, backend, config, skillsById, corpora });
 
   // The card is filled in once ingress resolves; the server closes over this
   // object so the /.well-known route always sees the final version.
   const card = {};
-  const server = createServer({ card, handlers, config, log });
+  const server = createServer({ card, jwks: jwks(identity), handlers, config, peerVerifier, log });
 
   const host = bindHost(config);
   await new Promise((resolve, reject) => {
@@ -117,6 +131,7 @@ export async function start({ configFile, port: portOverride, log = console.log 
     throw err;
   }
 
+  self.url = ingress.url;
   Object.assign(card, buildCard(config, ingress.url));
 
   const { ok, errors, warnings } = validateCard(card);
@@ -155,8 +170,16 @@ export async function start({ configFile, port: portOverride, log = console.log 
   log(`  jsonrpc  ${ingress.url}/a2a`);
   log(`  backend  ${backend.describe()}`);
   log(`  skills   ${config.skills.map((s) => s.id).join(", ")}`);
-  if (config.auth?.mode === "bearer") log(`  auth     bearer token required`);
+  log(`  identity ${identity.kid.slice(0, 12)}…  (keys at /.well-known/jwks.json)`);
+  if (peerVerifier) {
+    log(`  peers    ${peerVerifier.mode}${peerVerifier.mode === "allowlist" ? ` (${(config.peers.allow || []).length} allowed)` : ""}`);
+  }
+  if (config.auth?.mode === "bearer") log(`  auth     bearer token${peerVerifier ? " or verified peer JWT" : ""}`);
+  else if (peerVerifier) log(`  auth     verified peer JWT required`);
   else log(`  auth     NONE — anyone who knows the URL can call this agent`);
+  if (peerVerifier?.mode === "anyone" && (config.backend?.type === "claude")) {
+    log(`  WARNING  peers "anyone" + claude backend: any agent that controls a URL can spend your quota`);
+  }
   if (ingress.note) log(`  note     ${ingress.note}`);
   log("");
 

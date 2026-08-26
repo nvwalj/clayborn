@@ -149,6 +149,48 @@ Or set `CLAYBORN_TOKEN`. With `mode: "none"` anyone who learns the URL can spend
 your quota; the boot banner says so every time. The agent card is always served
 without auth — discovery depends on it.
 
+### Letting agents call each other
+
+Static tokens work between machines you own. Between agents that have never
+met there is nothing to hand out — so identity works the way it does between
+Mastodon or Matrix servers: **your identity is your URL, and you prove it with
+a key.**
+
+Every agent mints an Ed25519 keypair at first boot (`clayborn.identity.json`,
+gitignored, private key never leaves the machine) and serves the public half at
+`/.well-known/jwks.json`, next to its card. An outbound call carries a
+five-minute JWT — `iss` is the caller's own base URL, `aud` is yours — signed
+with the caller's key. You verify by fetching `iss`'s keys and checking the
+math. No secret is ever shared, so none is ever distributed, rotated, or
+leaked.
+
+Who may call is policy, in the config:
+
+```json
+"peers": { "mode": "allowlist", "allow": ["https://their-agent.example.com"] }
+```
+
+- `off` (default) — static token / open, as above
+- `allowlist` — only these base URLs. A stranger is refused **before** its keys
+  are even fetched; unknown callers cost you nothing.
+- `anyone` — any agent that can prove control of a URL. Sensible for an echo
+  backend; with a claude backend it means any identified stranger can spend
+  your quota, and the boot banner will say so.
+
+Revocation is deleting a line. Calling a peer:
+
+```bash
+node scripts/call.js https://their-agent.example.com "message" --iss https://your-agent.example.com
+```
+
+The agent at `--iss` must be running — its jwks route is how you are believed.
+A fresh token is minted per request; a replayed one is refused.
+
+Key fetches for allowlisted peers may reach private addresses — you typed the
+URL, and LAN peers are this repo's normal case. In `anyone` mode they follow
+the SSRF rule instead: private destinations are refused unless this agent is
+itself LAN-only.
+
 ## Grounding a skill in a corpus
 
 A skill can be answered from a local file instead of from the model's memory:

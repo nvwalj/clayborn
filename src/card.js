@@ -59,10 +59,17 @@ export function buildCard(config, publicUrl) {
   if (config.documentationUrl) card.documentationUrl = config.documentationUrl;
   if (config.iconUrl) card.iconUrl = config.iconUrl;
 
-  if (config.auth?.mode === "bearer") {
-    // securitySchemes is a map<string, SecurityScheme>, not a list.
+  const peersOn = config.peers?.mode && config.peers.mode !== "off";
+  if (config.auth?.mode === "bearer" || peersOn) {
+    // securitySchemes is a map<string, SecurityScheme>, not a list. With peer
+    // auth on, the bearer is a JWT (EdDSA, iss = the caller's own card base) —
+    // declare the format so a stranger knows what to mint.
     card.securitySchemes = {
-      bearer: { httpAuthSecurityScheme: { scheme: "bearer" } },
+      bearer: {
+        httpAuthSecurityScheme: peersOn
+          ? { scheme: "bearer", bearerFormat: "JWT (EdDSA; iss = caller base URL, keys at iss/.well-known/jwks.json)" }
+          : { scheme: "bearer" },
+      },
     };
     card.securityRequirements = [{ schemes: { bearer: { list: [] } } }];
   }

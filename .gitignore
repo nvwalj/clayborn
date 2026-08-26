@@ -8,3 +8,6 @@ clayborn.config.json
 
 *.log
 .DS_Store
+
+# This machine's private key. Never commit it.
+clayborn.identity.json

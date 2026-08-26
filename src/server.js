@@ -14,7 +14,7 @@ import { dispatch, RpcError, ERR } from "./rpc.js";
 const A2A_JSON = "application/a2a+json";
 const MAX_BODY = 2 * 1024 * 1024;
 
-export function createServer({ card, handlers, config, log = console.log }) {
+export function createServer({ card, jwks, handlers, config, peerVerifier, log = console.log }) {
   const token = config.auth?.mode === "bearer" ? config.auth.token : null;
 
   const server = http.createServer(async (req, res) => {
@@ -51,6 +51,10 @@ export function createServer({ card, handlers, config, log = console.log }) {
     if (req.method === "GET" && (route === "/.well-known/agent-card.json" || route === "/.well-known/agent.json")) {
       return send(200, card, "application/json");
     }
+    // Public for the same reason: peers verify our signatures with this.
+    if (req.method === "GET" && route === "/.well-known/jwks.json") {
+      return send(200, jwks || { keys: [] }, "application/json");
+    }
     if (req.method === "GET" && route === "/") {
       return send(200, {
         ok: true,
@@ -61,16 +65,35 @@ export function createServer({ card, handlers, config, log = console.log }) {
       }, "application/json");
     }
 
-    // --- Everything below is the protocol surface and may require a token. ---
-    if (token) {
+    // --- Everything below is the protocol surface and may require credentials.
+    // Two doors, either opens: the owner's static token, or a peer JWT that
+    // src/peers.js can verify. A rejected peer gets the reason — it names no
+    // secret, and "your token replayed" beats a bare 401 when the caller is a
+    // machine three networks away.
+    if (token || peerVerifier) {
       const auth = req.headers.authorization || "";
       const presented = auth.startsWith("Bearer ") ? auth.slice(7) : "";
-      if (!timingSafeEqual(presented, token)) {
+      let authorized = false;
+      let why = "missing bearer token";
+      if (token && presented && timingSafeEqual(presented, token)) {
+        authorized = true;
+      } else if (peerVerifier && presented && presented.split(".").length === 3) {
+        const r = await peerVerifier.verify(presented);
+        if (r.ok) {
+          authorized = true;
+          log(`[peer] ${r.iss} → ${req.method} ${route}`);
+        } else {
+          why = r.reason;
+        }
+      } else if (presented) {
+        why = "unrecognized token";
+      }
+      if (!authorized) {
         res.writeHead(401, {
           "content-type": `${A2A_JSON}; charset=utf-8`,
           "www-authenticate": 'Bearer realm="clayborn"',
         });
-        return res.end(JSON.stringify({ error: { code: -32600, message: "Unauthorized" } }));
+        return res.end(JSON.stringify({ error: { code: -32600, message: "Unauthorized", data: why } }));
       }
     }
 

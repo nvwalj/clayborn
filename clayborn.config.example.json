@@ -23,6 +23,11 @@
     "_comment": "Set to bearer and put a long random string in token (or the CLAYBORN_TOKEN env var) before going public.",
     "token": null
   },
+  "peers": {
+    "mode": "off",
+    "_comment": "Peer auth, so agents can call each other with no shared secrets. off = static token/none only. allowlist = only the base URLs below may call (their keys are fetched from <base>/.well-known/jwks.json). anyone = any agent that can prove control of a URL. Your own identity keypair is created at first boot in clayborn.identity.json.",
+    "allow": []
+  },
   "skills": [
     {
       "id": "ask",
