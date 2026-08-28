@@ -23,7 +23,10 @@ export function createServer({ card, jwks, handlers, config, peerVerifier, log =
   // hard: the exemption applies only when a skill with id "echo" exists AND
   // its backend is the echo backend — an owner-defined "echo" skill wired to
   // a real model never becomes a free door to their quota.
-  const echoOpen = (config.skills || []).some((s) => s.id === "echo" && s.backend === "echo");
+  const wholeAgentEchoes = (config.backend?.type || "echo") === "echo";
+  const echoOpen = (config.skills || []).some(
+    (s) => s.id === "echo" && (s.backend === "echo" || wholeAgentEchoes)
+  );
   // Tasks born from anonymous echo calls, so the same anonymous caller can
   // poll them to completion. Nothing else is ever visible without auth.
   const publicTasks = new Set();
