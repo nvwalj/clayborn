@@ -23,6 +23,8 @@ import { createServer } from "./server.js";
 import { startIngress, bindHost, verifyReachable } from "./ingress/index.js";
 import { createClaudeBackend } from "./backend/claude.js";
 import { createEchoBackend } from "./backend/echo.js";
+import { createCommandBackend } from "./backend/command.js";
+import { createHttpBackend } from "./backend/http.js";
 import { loadCorpora } from "./corpus.js";
 import { loadIdentity, jwks } from "./identity.js";
 import { createPeerVerifier } from "./peers.js";
@@ -105,6 +107,19 @@ export function loadConfig(file, log = console.log) {
       throw new Error("publish.repoDir is required — a local clone of your Pages repo");
     }
   }
+  if (config.backend?.type === "command") {
+    const a = config.backend.argv;
+    if (!Array.isArray(a) || !a.length || !a.every((x) => typeof x === "string")) {
+      throw new Error('backend.type "command" needs backend.argv — an array of strings, e.g. ["ollama", "run", "llama3"]');
+    }
+  }
+  if (config.backend?.type === "http") {
+    try {
+      new URL(config.backend.url);
+    } catch {
+      throw new Error(`backend.type "http" needs a valid backend.url (got ${JSON.stringify(config.backend.url)})`);
+    }
+  }
   // The identity keypair lives next to whichever config defined the agent —
   // for an npx run that is the user's directory, never npm's cache.
   if (!config.identityFile) config.identityFile = path.join(path.dirname(p), "clayborn.identity.json");
@@ -141,7 +156,9 @@ export function createBackend(config) {
   const type = config.backend?.type || "echo";
   if (type === "claude") return createClaudeBackend(config);
   if (type === "echo") return createEchoBackend();
-  throw new Error(`unknown backend.type: ${type} (expected "claude" or "echo")`);
+  if (type === "command") return createCommandBackend(config);
+  if (type === "http") return createHttpBackend(config);
+  throw new Error(`unknown backend.type: ${type} (expected "claude", "echo", "command" or "http")`);
 }
 
 export async function start({ configFile, port: portOverride, log = console.log } = {}) {
