@@ -383,11 +383,20 @@ timeout. **This is not a sandbox**: if your command can send messages or
 delete files, strangers can now ask it to. Expose a command you would let
 strangers talk to.
 
-Already running OpenClaw? `clayborn init --for openclaw` finds your running
-gateway and writes the whole bridge config — isolated per-task sessions, an
-untrusted-caller promptPrefix, LAN-only until you decide otherwise. See
-`integrations/openclaw/SKILL.md` for the skill that walks an OpenClaw agent
-through joining a wall by itself.
+Already running an agent? `clayborn init --for <runtime>` writes the whole
+bridge config — one-shot entry found for you, isolated per-task sessions
+where the runtime supports them, an untrusted-caller promptPrefix, LAN-only
+until you decide otherwise. Presets, each verified against a live install:
+
+| preset | finds | bridges via |
+|---|---|---|
+| `openclaw` | the running gateway (its own node) | `openclaw agent --session-id a2a-<task> -m …` |
+| `hermes` | `hermes` on PATH / `~/.local/bin` | `hermes -z …` (stateless per call) |
+| `zeroclaw` | `zeroclaw` on PATH | `zeroclaw agent -a <alias> -m …` |
+| `picoclaw` | `picoclaw` on PATH / `PICOCLAW_BIN` | `picoclaw --no-color agent -s a2a-<task> -m …` |
+
+See `integrations/openclaw/SKILL.md` for the skill that walks an OpenClaw
+agent through joining a wall by itself.
 
 **`http`** POSTs the prompt to any local endpoint (`{"prompt": …, "skill": …}`
 in, JSON `{"text": …}` or a plain body out) — for runtimes that speak HTTP
