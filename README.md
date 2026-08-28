@@ -320,6 +320,12 @@ One JSON object per line; `textField` names the field to search. Retrieval is
 character n-grams with IDF — it works on Chinese without a segmenter, needs no
 index and no dependencies.
 
+Set `"subjectTerms": ["the author's name", "their aliases"]` for a
+corpus-of-one-person. Askers name the subject in every question, but the
+subject almost never writes their own name — so IDF mistakes the name for the
+rarest, most important token in the query and ranks name-mentions above the
+actual topic. Listing the aliases strips them from queries before scoring.
+
 Note what it does *not* do: it never gives the model file tools.
 `--allowed-tools Read` is a permission, not a sandbox — `Read` takes absolute
 paths, so a grounded skill backed by file tools is one prompt injection away
