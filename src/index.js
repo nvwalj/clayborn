@@ -136,8 +136,12 @@ export function loadConfig(file, log = console.log) {
  */
 export function ensureEchoSkill(config) {
   if (config.echoSkill === false) return config;
-  if ((config.backend?.type || "echo") === "echo") return config; // whole agent already echoes
   if ((config.skills || []).some((s) => s.id === "echo")) return config; // owner defined their own
+  // Injected even when the whole backend is echo: "the agent answers echo
+  // anyway" is true, but the SKILL id is what the fist-bump recipe, the
+  // wall's deep probe, and the stroll all ask for by name. An agent without
+  // it fails exactly the introductions it exists to enable — found by an
+  // independent verifier following the README on a bare scaffold.
   config.skills.push({
     id: "echo",
     name: "Echo",

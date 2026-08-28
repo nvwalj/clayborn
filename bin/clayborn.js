@@ -21,6 +21,7 @@ const HELP = `clayborn — run your own A2A agent on your own machine
 
 usage:
   clayborn init                        scaffold clayborn.config.json in this directory
+  clayborn init --for <runtime>        bridge an installed agent (openclaw|hermes|zeroclaw|picoclaw|nanoclaw)
   clayborn start                       run the agent (config from this directory)
   clayborn check [card-url]            validate your card, or anyone's
   clayborn call <peer> "msg" --iss <my-base>        send a task to a peer

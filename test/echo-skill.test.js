@@ -13,12 +13,15 @@ const claudeConfig = () => ({
   skills: [{ id: "ask", name: "Ask", description: "d", tags: [] }],
 });
 
-test("echo is injected for model-backed agents, and only there", () => {
+test("echo is injected for every agent unless the owner opts out", () => {
   const a = ensureEchoSkill(claudeConfig());
   assert.ok(a.skills.some((s) => s.id === "echo" && s._builtin), "injected for claude backend");
 
+  // Whole-agent-echo configs get it too: the SKILL ID is what the fist bump,
+  // the wall's probe, and the stroll ask for by name — an independent verifier
+  // found the README recipe failing on exactly the barest scaffold without it.
   const b = ensureEchoSkill({ ...claudeConfig(), backend: { type: "echo" } });
-  assert.ok(!b.skills.some((s) => s.id === "echo"), "not injected when the whole agent echoes");
+  assert.ok(b.skills.some((s) => s.id === "echo" && s._builtin), "injected when the whole agent echoes");
 
   const c = ensureEchoSkill({ ...claudeConfig(), echoSkill: false });
   assert.ok(!c.skills.some((s) => s.id === "echo"), "owner can opt out");
