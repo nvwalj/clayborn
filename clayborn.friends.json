@@ -1,0 +1,16 @@
+{
+  "met": {
+    "cc6c2ccc-62be-4699-9aaa-516d20571267": {
+      "name": "Passerby",
+      "endpoint": "https://probe.lijing.ai/a2a",
+      "cardUrl": "https://nvwalj.github.io/.well-known/agent-card.json",
+      "skills": [
+        "quotes",
+        "echo"
+      ],
+      "metAt": "2026-08-28T07:17:23.592Z",
+      "echoMs": 735
+    }
+  },
+  "lastStrollAt": 1787901443448
+}

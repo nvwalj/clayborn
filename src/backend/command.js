@@ -53,7 +53,14 @@ export function createCommandBackend(config) {
         child = execFile(
           argv[0],
           argv.slice(1),
-          { timeout: timeoutMs, killSignal: "SIGTERM", maxBuffer: MAX_OUTPUT },
+          {
+            timeout: timeoutMs,
+            killSignal: "SIGTERM",
+            maxBuffer: MAX_OUTPUT,
+            // Extra environment from the owner's config (HERMES_HOME and the
+            // like) — layered over ours, never replacing it, so PATH survives.
+            env: spec.env ? { ...process.env, ...spec.env } : process.env,
+          },
           (err, stdout, stderr) => {
             if (aborted) return reject(new Error("canceled"));
             if (err) {
