@@ -81,7 +81,7 @@ function bridgeConfig({ runtime, backend, extraNote = "" }) {
     peers: { mode: "off" },
     _next_steps:
       "1) test locally: clayborn start, then ask via /a2a " +
-      "2) go public: ingress quick/named 3) join a wall: add \"wall\": {\"url\": \"https://wall.lijing.ai\"}. " +
+      "2) go public: ingress quick/named 3) join a wall: add \"wall\": {\"url\": \"https://cardwall.ai\"}. " +
       extraNote,
   };
 }
@@ -165,6 +165,31 @@ function picoclawPreset() {
   return preset;
 }
 
+function nanoclawPreset() {
+  const dir = process.env.NANOCLAW_DIR && existsSync(process.env.NANOCLAW_DIR) ? process.env.NANOCLAW_DIR : null;
+  if (!dir) {
+    console.error("set NANOCLAW_DIR to your NanoClaw checkout (the folder with nanoclaw.sh).");
+    return null;
+  }
+  const preset = {
+    what: `the NanoClaw at ${dir}`,
+    config: bridgeConfig({
+      runtime: "NanoClaw",
+      backend: {
+        type: "command",
+        argv: ["pnpm", "run", "chat", "{prompt}"],
+        cwd: dir,
+        timeoutSeconds: 300,
+      },
+    }),
+  };
+  preset.config._next_steps +=
+    " NanoClaw side: host service must be running (pnpm start / launchd) with a CLI-wired agent " +
+    "(scripts/init-cli-agent.ts). NOTE: all callers share that one CLI conversation — NanoClaw's " +
+    "chat has no per-session flag; if that matters, give the bridge its own dedicated agent group.";
+  return preset;
+}
+
 function zeroclawPreset() {
   let bin = null;
   try {
@@ -201,7 +226,7 @@ if (!cmd || cmd === "help" || cmd === "--help" || cmd === "-h") {
     process.exit(1);
   }
   const forWhat = rest[rest.indexOf("--for") + 1];
-  const PRESETS = { openclaw: openclawPreset, hermes: hermesPreset, zeroclaw: zeroclawPreset, picoclaw: picoclawPreset };
+  const PRESETS = { openclaw: openclawPreset, hermes: hermesPreset, zeroclaw: zeroclawPreset, picoclaw: picoclawPreset, nanoclaw: nanoclawPreset };
   if (rest.includes("--for") && PRESETS[forWhat]) {
     const preset = PRESETS[forWhat]();
     if (!preset) process.exit(1);

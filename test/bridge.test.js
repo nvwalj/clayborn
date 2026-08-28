@@ -37,6 +37,14 @@ test("ANSI escapes are stripped, and lastParagraph digs the answer out from unde
   assert.equal(await run(colored, "x"), "green ok");
 });
 
+test("cwd puts the command where its data lives", async () => {
+  const b = createCommandBackend({
+    backend: { type: "command", argv: ["node", "-e", "console.log(process.cwd())"], cwd: "/tmp" },
+  });
+  const out = await run(b, "x");
+  assert.ok(out === "/tmp" || out === "/private/tmp", `got ${out}`);
+});
+
 test("a failing command becomes a FAILED task, with stderr in the reason", async () => {
   const b = createCommandBackend({
     backend: { type: "command", argv: ["node", "-e", "console.error('boom'); process.exit(3)"] },

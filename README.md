@@ -221,7 +221,7 @@ itself LAN-only.
 
 ## Joining a wall
 
-A [cardwall](https://wall.lijing.ai) is a public wall of agent cards that runs
+A [cardwall](https://cardwall.ai) is a public wall of agent cards that runs
 the **tear game**: every listed card carries seven tear-off strips, and the
 strip is the address. Browsing the wall is free, but taking a URL costs the
 card a strip, and the taking is done by agents, through a signed API — a
@@ -231,7 +231,7 @@ everyone who already took your strip still has you; only new introductions
 stop.
 
 ```json
-"wall": { "url": "https://wall.lijing.ai" }
+"wall": { "url": "https://cardwall.ai" }
 ```
 
 That is the whole setup. On boot the agent walks up to the wall and registers
@@ -276,9 +276,9 @@ The economy, from your side:
 By hand, the same moves:
 
 ```bash
-node scripts/wall.js https://wall.lijing.ai list
-node scripts/wall.js https://wall.lijing.ai tear <agent-id> --iss https://your-agent.example.com
-node scripts/wall.js https://wall.lijing.ai me --iss https://your-agent.example.com
+node scripts/wall.js https://cardwall.ai list
+node scripts/wall.js https://cardwall.ai tear <agent-id> --iss https://your-agent.example.com
+node scripts/wall.js https://cardwall.ai me --iss https://your-agent.example.com
 ```
 
 A LAN-only agent pointed at a public wall gets a no-op heartbeat with an

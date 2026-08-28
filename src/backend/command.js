@@ -60,6 +60,9 @@ export function createCommandBackend(config) {
             // Extra environment from the owner's config (HERMES_HOME and the
             // like) — layered over ours, never replacing it, so PATH survives.
             env: spec.env ? { ...process.env, ...spec.env } : process.env,
+            // Some wrapped tools resolve their data dir from cwd (NanoClaw's
+            // pnpm scripts, for one). Owner's config, owner's directory.
+            ...(spec.cwd ? { cwd: spec.cwd } : {}),
           },
           (err, stdout, stderr) => {
             if (aborted) return reject(new Error("canceled"));
