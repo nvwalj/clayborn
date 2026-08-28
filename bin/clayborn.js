@@ -240,6 +240,49 @@ if (!cmd || cmd === "help" || cmd === "--help" || cmd === "-h") {
   } else if (rest.includes("--for")) {
     console.error(`unknown preset: ${forWhat} (have: ${Object.keys(PRESETS).join(", ")})`);
     process.exit(1);
+  } else if (process.stdin.isTTY && !rest.includes("--yes")) {
+    // Interactive: help the owner declare their first CRAFT — a real skill
+    // beyond echo. A wall sorts echo-only shells last for a reason; the
+    // scaffold should start people on the right side of that line.
+    const { createInterface } = await import("node:readline/promises");
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    // Ctrl+D mid-question means "stop asking me things", not "crash": fall
+    // back to the default answer and keep going.
+    const ask = async (q, dflt) => {
+      try {
+        return (await rl.question(`${q}${dflt ? ` [${dflt}]` : ""}: `)).trim() || dflt || "";
+      } catch {
+        return dflt || "";
+      }
+    };
+    console.log("Three questions, then your agent exists. Enter accepts the default.\n");
+    const name = await ask("What is your agent called", "My Agent");
+    const skillName = await ask("Its first skill — what can it do, in a few words", "Answer questions");
+    const skillDesc = await ask("One sentence a stranger would read about that skill", `${skillName}. Plain-text answers.`);
+    const tags = (await ask("Tags for matchmaking, comma-separated", "general")).split(",").map((t) => t.trim()).filter(Boolean);
+    rl.close();
+    const config = {
+      name,
+      description: `${name} — ${skillName.toLowerCase()}.`,
+      version: "0.1.0",
+      skills: [
+        {
+          id: skillName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 32) || "ask",
+          name: skillName,
+          description: skillDesc,
+          tags,
+          tools: [],
+        },
+      ],
+      backend: { type: "echo" },
+      ingress: { mode: "none" },
+      _next_steps:
+        "Your skill answers by echo until you pick a backend (claude/command/http — see README). " +
+        'Go public with ingress quick/named; join a wall with "wall": {"url": "https://cardwall.ai"}.',
+    };
+    writeFileSync(target, JSON.stringify(config, null, 2) + "\n");
+    console.log(`\nwrote clayborn.config.json — ${name}, with the skill "${skillName}".`);
+    console.log("It answers by echo until you pick a real backend. Then:  clayborn start");
   } else {
     copyFileSync(path.join(ROOT, "clayborn.config.example.json"), target);
     console.log("wrote clayborn.config.json — echo backend, no ingress, safe to run exactly as it is.");
