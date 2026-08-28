@@ -132,6 +132,39 @@ function hermesPreset() {
   return { what: `the Hermes Agent at ${bin}`, config: bridgeConfig({ runtime: "Hermes", backend }) };
 }
 
+function picoclawPreset() {
+  const bin = (() => {
+    if (process.env.PICOCLAW_BIN && existsSync(process.env.PICOCLAW_BIN)) return process.env.PICOCLAW_BIN;
+    try {
+      const b = execFileSync("which", ["picoclaw"], { encoding: "utf8" }).trim();
+      if (b) return b;
+    } catch { /* not found */ }
+    return null;
+  })();
+  if (!bin) {
+    console.error("could not find picoclaw on PATH (or set PICOCLAW_BIN).");
+    console.error("grab a binary from https://github.com/sipeed/picoclaw/releases and run `picoclaw onboard` once.");
+    return null;
+  }
+  const preset = {
+    what: `the PicoClaw at ${bin}`,
+    config: bridgeConfig({
+      runtime: "PicoClaw",
+      backend: {
+        type: "command",
+        // --no-color for clean text, per-task sessions so callers never share
+        // context, lastParagraph because the answer follows the lobster banner.
+        argv: [bin, "--no-color", "agent", "-s", "a2a-{taskId}", "-m", "{prompt}"],
+        lastParagraph: true,
+        timeoutSeconds: 240,
+      },
+    }),
+  };
+  preset.config._next_steps +=
+    " PicoClaw side: run `picoclaw onboard` once and set agents.defaults.provider/model_name + a model_list entry in ~/.picoclaw/config.json.";
+  return preset;
+}
+
 function zeroclawPreset() {
   let bin = null;
   try {
@@ -168,7 +201,7 @@ if (!cmd || cmd === "help" || cmd === "--help" || cmd === "-h") {
     process.exit(1);
   }
   const forWhat = rest[rest.indexOf("--for") + 1];
-  const PRESETS = { openclaw: openclawPreset, hermes: hermesPreset, zeroclaw: zeroclawPreset };
+  const PRESETS = { openclaw: openclawPreset, hermes: hermesPreset, zeroclaw: zeroclawPreset, picoclaw: picoclawPreset };
   if (rest.includes("--for") && PRESETS[forWhat]) {
     const preset = PRESETS[forWhat]();
     if (!preset) process.exit(1);

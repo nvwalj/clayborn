@@ -22,6 +22,21 @@ test("command backend substitutes {prompt} into argv — as data, never through 
   assert.equal(await run(b, "spacex $(echo pwned)"), "SPACEX $(ECHO PWNED)");
 });
 
+test("ANSI escapes are stripped, and lastParagraph digs the answer out from under a banner", async () => {
+  const noisy = createCommandBackend({
+    backend: {
+      type: "command",
+      argv: ["node", "-e", "console.log('\\x1b[1;31mBIG BANNER\\x1b[0m\\nlogo line\\n\\nthe actual answer')"],
+      lastParagraph: true,
+    },
+  });
+  assert.equal(await run(noisy, "x"), "the actual answer");
+  const colored = createCommandBackend({
+    backend: { type: "command", argv: ["node", "-e", "console.log('\\x1b[32mgreen\\x1b[0m ok')"] },
+  });
+  assert.equal(await run(colored, "x"), "green ok");
+});
+
 test("a failing command becomes a FAILED task, with stderr in the reason", async () => {
   const b = createCommandBackend({
     backend: { type: "command", argv: ["node", "-e", "console.error('boom'); process.exit(3)"] },

@@ -69,7 +69,15 @@ export function createCommandBackend(config) {
                 : (String(stderr || "").trim() || err.message).slice(0, 400);
               return reject(new Error(`command backend: ${why}`));
             }
-            resolve(String(stdout).trim() || "(the command produced no output)");
+            // ANSI escapes never survive — a terminal answer is not a terminal.
+            let text = String(stdout).replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "").trim();
+            if (spec.lastParagraph) {
+              // For CLIs that print a banner before the answer (PicoClaw's
+              // lobster, and friends): the answer is the last paragraph.
+              const paras = text.split(/\n\s*\n/).filter((p) => p.trim());
+              if (paras.length) text = paras[paras.length - 1].trim();
+            }
+            resolve(text || "(the command produced no output)");
           }
         );
 
