@@ -126,6 +126,7 @@ export function createHandlers({ store, backend, echoBackend, config, skillsById
     const { promise, abort } = runner.run({
       skill,
       prompt: parts.join("\n\n---\n\n"),
+      taskId: task.id,
       onProgress: () => {},
     });
     store.track(task.id, abort);

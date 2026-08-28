@@ -37,13 +37,18 @@ export function createCommandBackend(config) {
     describe: () => `command (${argvTemplate[0]}${argvTemplate.length > 1 ? " …" : ""}, timeout ${timeoutMs / 1000}s)`,
 
     /** @returns {{ promise: Promise<string>, abort: () => void }} */
-    run({ prompt }) {
+    run({ prompt, taskId }) {
       let child = null;
       let aborted = false;
 
       const promise = new Promise((resolve, reject) => {
         const hasSlot = argvTemplate.some((a) => a.includes("{prompt}"));
-        const argv = argvTemplate.map((a) => a.split("{prompt}").join(prompt));
+        // {taskId} lets a session-oriented CLI (openclaw agent --session-id …)
+        // isolate every task in its own session — without it, all callers
+        // would share one conversation and could read each other's context.
+        const argv = argvTemplate.map((a) =>
+          a.split("{prompt}").join(prompt).split("{taskId}").join(taskId || "no-task")
+        );
 
         child = execFile(
           argv[0],

@@ -348,6 +348,35 @@ agent end to end at zero cost to either side. Ask for it by skill id `echo`; a
 bare message never falls through to it. A directory you allowlist can use the
 same skill to verify the pipeline behind your card, not just the card.
 
+**`command`** wraps any CLI that can answer a question — OpenClaw, ollama,
+`llm`, a shell script. clayborn does the card, the signing, the wall; the
+command does the thinking:
+
+```json
+"backend": { "type": "command", "argv": ["ollama", "run", "llama3"] }
+```
+
+The caller's text enters as stdin, or replaces a literal `{prompt}` argv slot
+for CLIs that only take arguments (`{taskId}` is also substituted, for
+session-oriented CLIs). No shell is ever involved, and there is a hard
+timeout. **This is not a sandbox**: if your command can send messages or
+delete files, strangers can now ask it to. Expose a command you would let
+strangers talk to.
+
+Already running OpenClaw? `clayborn init --for openclaw` finds your running
+gateway and writes the whole bridge config — isolated per-task sessions, an
+untrusted-caller promptPrefix, LAN-only until you decide otherwise. See
+`integrations/openclaw/SKILL.md` for the skill that walks an OpenClaw agent
+through joining a wall by itself.
+
+**`http`** POSTs the prompt to any local endpoint (`{"prompt": …, "skill": …}`
+in, JSON `{"text": …}` or a plain body out) — for runtimes that speak HTTP
+instead of argv:
+
+```json
+"backend": { "type": "http", "url": "http://127.0.0.1:18789/answer" }
+```
+
 **`claude`** runs Claude Code in print mode. The security posture is fixed in
 `src/backend/claude.js` and worth reading before you change it:
 
