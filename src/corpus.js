@@ -35,16 +35,33 @@ const CJK = /[㐀-鿿぀-ヿ가-힯]/;
 // so 到底是什么意思 goes before 什么.
 const SCAFFOLD = [
   /到底是什么意思/g, /是什么意思/g, /到底是什么/g, /为什么会/g, /为什么要/g, /为什么/g,
-  /怎么理解/g, /怎么看待/g, /他怎么看/g, /怎么看/g, /怎么样/g, /是怎样/g, /有什么/g,
+  /怎么理解/g, /怎么看待/g, /怎么评价/g, /他怎么看/g, /怎么看/g, /怎么样/g, /怎么说/g,
+  /怎么想/g, /是怎样/g, /如何看待/g, /如何评价/g, /如何理解/g, /如何看/g, /有什么/g,
   /什么是/g, /是什么/g, /的看法/g, /的观点/g, /的理解/g, /这件事/g, /这个问题/g,
+  /有没有/g, /说过/g, /谈过/g, /提过/g, /聊过/g,
   /到底/g, /究竟/g, /请问/g, /说说/g, /讲讲/g, /聊聊/g,
   /\bwhat (?:does|do|is|are)\b/gi, /\bhow does\b/gi, /\bwhy does\b/gi,
-  /\btell me about\b/gi, /\bwhat's\b/gi,
+  /\btell me about\b/gi, /\bwhat's\b/gi, /\bsay about\b/gi, /\bthink (?:about|of)\b/gi,
 ];
 
-/** Strip the asking, keep the saying. Falls back to the original if nothing survives. */
-function deScaffold(query) {
+/**
+ * Strip the asking, keep the saying. Falls back to the original if nothing
+ * survives.
+ *
+ * `subjectTerms` are the corpus's own subject — the author's names and
+ * aliases. In a corpus BY one person, that person's name in a query is
+ * semantically empty but statistically rare (he almost never writes his own
+ * name), so IDF hands it a huge weight and "段永平怎么说 SpaceX" ranked posts
+ * mentioning 段永平 — or merely sharing the junction gram 平怎, as in
+ * 水平怎么样 — above every post about SpaceX. The skill owner lists the
+ * aliases; stripping them also breaks the CJK run at the name boundary, which
+ * kills those junction grams for free.
+ */
+function deScaffold(query, subjectTerms = []) {
   let s = String(query || "");
+  for (const t of [...subjectTerms].sort((a, b) => b.length - a.length)) {
+    if (t) s = s.split(t).join(" ");
+  }
   for (const re of SCAFFOLD) s = s.replace(re, " ");
   s = s.replace(/[?？。，,、!！:：]/g, " ").replace(/\s+/g, " ").trim();
   return s.length >= 2 ? s : String(query || "");
@@ -136,16 +153,18 @@ export class Corpus {
    * matching "河", and an exact substring of the whole query outranks both.
    */
   search(query, limit = 8) {
-    const core = deScaffold(query);
+    const core = deScaffold(query, this.spec.subjectTerms);
     const q = [...features(core)].map((f) => ({ f, w: this.idf(f) * (f.length >= 3 ? 1.6 : 1) }));
     const total = q.reduce((n, x) => n + x.w, 0);
     if (!total) return [];
 
     // Phrases the caller actually typed, kept whole. An exact hit on one of
-    // these is worth more than any amount of scattered n-gram overlap.
+    // these is worth more than any amount of scattered n-gram overlap. The
+    // minimum is 5 chars, not 7 — "SpaceX" and "Tesla" are exactly the kind
+    // of names this bonus exists for, and the old floor silently excluded them.
     const phrases = [
       core.toLowerCase(),
-      ...(String(query).toLowerCase().match(/[a-z][a-z ]{5,40}[a-z]/g) || []),
+      ...(String(query).toLowerCase().match(/[a-z][a-z .'-]{3,40}[a-z]/g) || []),
     ].filter((p) => p.length >= 4);
 
     const scored = [];
