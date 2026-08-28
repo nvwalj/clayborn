@@ -132,6 +132,32 @@ function hermesPreset() {
   return { what: `the Hermes Agent at ${bin}`, config: bridgeConfig({ runtime: "Hermes", backend }) };
 }
 
+function zeroclawPreset() {
+  let bin = null;
+  try {
+    bin = execFileSync("which", ["zeroclaw"], { encoding: "utf8" }).trim() || null;
+  } catch { /* not found */ }
+  if (!bin) {
+    console.error("could not find zeroclaw on PATH. Install it first: brew install zeroclaw");
+    return null;
+  }
+  // ZeroClaw needs a configured agent alias with a model_provider and a
+  // NON-supervised risk profile — supervised mode prompts a human for tool
+  // approval, which a bridge has no human to answer.
+  const alias = process.env.ZEROCLAW_AGENT || "bridge";
+  const backend = {
+    type: "command",
+    argv: [bin, "agent", "-a", alias, "-m", "{prompt}"],
+    timeoutSeconds: 240,
+    ...(process.env.ZEROCLAW_WORKSPACE ? { env: { ZEROCLAW_WORKSPACE: process.env.ZEROCLAW_WORKSPACE } } : {}),
+  };
+  const preset = { what: `the ZeroClaw agent alias "${alias}"`, config: bridgeConfig({ runtime: "ZeroClaw", backend }) };
+  preset.config._next_steps +=
+    ` ZeroClaw side: the alias must exist (zeroclaw agents create ${alias}), reference a [providers.models.…] entry via model_provider, ` +
+    `and use a risk profile with autonomy != "supervised" — supervised prompts a human the bridge does not have.`;
+  return preset;
+}
+
 if (!cmd || cmd === "help" || cmd === "--help" || cmd === "-h") {
   console.log(HELP);
   process.exit(cmd ? 0 : 2);
@@ -142,7 +168,7 @@ if (!cmd || cmd === "help" || cmd === "--help" || cmd === "-h") {
     process.exit(1);
   }
   const forWhat = rest[rest.indexOf("--for") + 1];
-  const PRESETS = { openclaw: openclawPreset, hermes: hermesPreset };
+  const PRESETS = { openclaw: openclawPreset, hermes: hermesPreset, zeroclaw: zeroclawPreset };
   if (rest.includes("--for") && PRESETS[forWhat]) {
     const preset = PRESETS[forWhat]();
     if (!preset) process.exit(1);
