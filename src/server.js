@@ -17,6 +17,30 @@ const MAX_BODY = 2 * 1024 * 1024;
 export function createServer({ card, jwks, handlers, config, peerVerifier, log = console.log }) {
   const token = config.auth?.mode === "bearer" ? config.auth.token : null;
 
+  // The echo skill answers WITHOUT credentials — the protocol-level fist bump.
+  // Two strangers on a wall can always make first contact, because echo runs
+  // no model and reads nothing: free on both sides, nothing to steal. Guarded
+  // hard: the exemption applies only when a skill with id "echo" exists AND
+  // its backend is the echo backend — an owner-defined "echo" skill wired to
+  // a real model never becomes a free door to their quota.
+  const echoOpen = (config.skills || []).some((s) => s.id === "echo" && s.backend === "echo");
+  // Tasks born from anonymous echo calls, so the same anonymous caller can
+  // poll them to completion. Nothing else is ever visible without auth.
+  const publicTasks = new Set();
+  const rememberPublic = (id) => {
+    if (!id) return;
+    if (publicTasks.size >= 4096) publicTasks.delete(publicTasks.values().next().value);
+    publicTasks.add(id);
+  };
+  const isEchoSend = (b) =>
+    b && !Array.isArray(b) &&
+    ["SendMessage", "message/send"].includes(b.method) &&
+    b.params?.metadata?.skillId === "echo";
+  const isPublicFollowup = (b) =>
+    b && !Array.isArray(b) &&
+    ["GetTask", "tasks/get", "CancelTask", "tasks/cancel"].includes(b.method) &&
+    publicTasks.has(b.params?.id);
+
   const server = http.createServer(async (req, res) => {
     const send = (code, obj, type = A2A_JSON) => {
       const body = JSON.stringify(obj);
@@ -69,7 +93,8 @@ export function createServer({ card, jwks, handlers, config, peerVerifier, log =
     // Two doors, either opens: the owner's static token, or a peer JWT that
     // src/peers.js can verify. A rejected peer gets the reason — it names no
     // secret, and "your token replayed" beats a bare 401 when the caller is a
-    // machine three networks away.
+    // machine three networks away. Third, narrow door: anonymous echo (above).
+    let prereadBody;
     if (token || peerVerifier) {
       const auth = req.headers.authorization || "";
       const presented = auth.startsWith("Bearer ") ? auth.slice(7) : "";
@@ -88,6 +113,23 @@ export function createServer({ card, jwks, handlers, config, peerVerifier, log =
       } else if (presented) {
         why = "unrecognized token";
       }
+      if (!authorized && echoOpen) {
+        // Peek at what is actually being asked before slamming the door.
+        if (req.method === "POST" && (route === "/a2a" || route === "/jsonrpc" || route === "/message:send")) {
+          try {
+            prereadBody = await readJson(req);
+          } catch { /* malformed — fall through to 401; the body reader ate the stream anyway */ }
+          const rpcish = route !== "/message:send";
+          const probe = rpcish ? prereadBody : { method: "SendMessage", params: prereadBody };
+          if (isEchoSend(probe) || (rpcish && isPublicFollowup(probe))) authorized = true;
+        } else if (req.method === "GET" && /^\/tasks\/[^/:]+$/.test(route)) {
+          if (publicTasks.has(decodeURIComponent(route.slice("/tasks/".length)))) authorized = true;
+        } else if (req.method === "POST" && /:cancel$/.test(route)) {
+          const id = route.match(/^\/tasks\/([^/]+):cancel$/)?.[1];
+          if (id && publicTasks.has(decodeURIComponent(id))) authorized = true;
+        }
+        if (authorized) req._anonEcho = true;
+      }
       if (!authorized) {
         res.writeHead(401, {
           "content-type": `${A2A_JSON}; charset=utf-8`,
@@ -100,14 +142,23 @@ export function createServer({ card, jwks, handlers, config, peerVerifier, log =
     // --- JSON-RPC binding ---
     if (req.method === "POST" && (route === "/a2a" || route === "/jsonrpc")) {
       let body;
-      try {
-        body = await readJson(req);
-      } catch (e) {
-        return send(e.code === 413 ? 413 : 200, {
-          jsonrpc: "2.0",
-          id: null,
-          error: new RpcError(e.code === 413 ? ERR.INVALID_REQUEST : ERR.PARSE, e.message).toJSON(),
-        });
+      if (prereadBody !== undefined) {
+        body = prereadBody;
+      } else {
+        try {
+          body = await readJson(req);
+        } catch (e) {
+          return send(e.code === 413 ? 413 : 200, {
+            jsonrpc: "2.0",
+            id: null,
+            error: new RpcError(e.code === 413 ? ERR.INVALID_REQUEST : ERR.PARSE, e.message).toJSON(),
+          });
+        }
+      }
+      if (req._anonEcho && isEchoSend(body)) {
+        const out = await dispatch(handlers, body);
+        rememberPublic(out?.result?.id);
+        return out ? send(200, out) : res.writeHead(204).end();
       }
 
       if (Array.isArray(body)) {
@@ -128,7 +179,10 @@ export function createServer({ card, jwks, handlers, config, peerVerifier, log =
     // --- HTTP+JSON binding ---
     try {
       if (req.method === "POST" && route === "/message:send") {
-        return send(200, await handlers.SendMessage(await readJson(req)));
+        const params = prereadBody !== undefined ? prereadBody : await readJson(req);
+        const task = await handlers.SendMessage(params);
+        if (req._anonEcho) rememberPublic(task?.id);
+        return send(200, task);
       }
       if (req.method === "GET" && route === "/tasks") {
         return send(200, handlers.ListTasks({
