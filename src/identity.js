@@ -80,9 +80,15 @@ export function decodeToken(token) {
   const parts = String(token || "").split(".");
   if (parts.length !== 3) return null;
   try {
+    const header = JSON.parse(fromB64u(parts[0]).toString("utf8"));
+    const payload = JSON.parse(fromB64u(parts[1]).toString("utf8"));
+    // A bare JSON literal — `null`, `1`, `"x"`, `[…]` — parses without throwing
+    // but is not a usable header/payload. Reject here so no downstream reader
+    // dereferences `header.alg` on null and takes the process down with it.
+    if (!isPlainObject(header) || !isPlainObject(payload)) return null;
     return {
-      header: JSON.parse(fromB64u(parts[0]).toString("utf8")),
-      payload: JSON.parse(fromB64u(parts[1]).toString("utf8")),
+      header,
+      payload,
       input: `${parts[0]}.${parts[1]}`,
       sig: fromB64u(parts[2]),
     };
@@ -90,6 +96,8 @@ export function decodeToken(token) {
     return null;
   }
 }
+
+const isPlainObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 
 /** Verify one decoded token against one JWK. Pure math — no policy here. */
 export function verifySignature(decoded, jwk) {

@@ -74,6 +74,10 @@ export class TaskStore {
   addArtifact(id, artifact) {
     const t = this.tasks.get(id);
     if (!t) return null;
+    // A terminal task is final. A backend that resolves AFTER its task was
+    // canceled must not be able to append late output (and, via setState's
+    // guard, must not flip the state either) — the cancel is the last word.
+    if (isTerminal(t.status.state)) return t;
     t.artifacts.push(artifact);
     return t;
   }
@@ -106,18 +110,47 @@ export class TaskStore {
   /**
    * ListTasks with filtering + pagination (added to the spec in v1.0).
    * Newest first, which is what a polling client actually wants.
+   *
+   * `owner` scopes the list to one caller — task isolation is enforced here,
+   * not left to whoever calls us. `contextId`/`state` are the spec filters;
+   * `includeArtifacts:false` strips artifacts from the page; `totalSize` is the
+   * pre-pagination count the spec expects.
    */
-  list({ pageSize = 50, pageToken = "", state = null } = {}) {
+  list({
+    pageSize = 50,
+    pageToken = "",
+    state = null,
+    contextId = null,
+    owner = undefined,
+    includeArtifacts = false, // v1.0.1: artifacts are omitted from a list unless asked for
+    historyLength = undefined,
+    statusTimestampAfter = null,
+  } = {}) {
     let all = [...this.tasks.values()].sort(
       (a, b) => Date.parse(b.status.timestamp) - Date.parse(a.status.timestamp)
     );
+    if (owner !== undefined) all = all.filter((t) => t.owner === owner);
     if (state) all = all.filter((t) => t.status.state === state);
+    if (contextId) all = all.filter((t) => t.contextId === contextId);
+    if (statusTimestampAfter) {
+      const after = Date.parse(statusTimestampAfter);
+      if (Number.isFinite(after)) all = all.filter((t) => Date.parse(t.status.timestamp) > after);
+    }
 
+    const totalSize = all.length;
     const start = pageToken ? Math.max(0, parseInt(pageToken, 10) || 0) : 0;
-    const size = Math.min(Math.max(1, pageSize), 200);
-    const page = all.slice(start, start + size);
+    const size = Math.min(Math.max(1, pageSize), 100); // v1.0.1 caps a page at 100
+    const nLimit = Number(historyLength);
+    const limitHistory = Number.isFinite(nLimit) && nLimit >= 0;
+    const page = all.slice(start, start + size).map((t) => {
+      if (includeArtifacts && !limitHistory) return t;
+      const out = { ...t };
+      if (!includeArtifacts) delete out.artifacts; // omit the field entirely, not an empty array
+      if (limitHistory) out.history = nLimit === 0 ? [] : (t.history || []).slice(-nLimit);
+      return out;
+    });
     const next = start + size < all.length ? String(start + size) : "";
-    return { tasks: page, nextPageToken: next };
+    return { tasks: page, nextPageToken: next, totalSize, pageSize: size };
   }
 
   #evict() {

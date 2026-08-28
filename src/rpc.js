@@ -25,6 +25,7 @@ export const ERR = {
   PUSH_NOT_SUPPORTED: [-32003, "PushNotificationNotSupportedError"],
   UNSUPPORTED_OPERATION: [-32004, "UnsupportedOperationError"],
   CONTENT_TYPE_NOT_SUPPORTED: [-32005, "ContentTypeNotSupportedError"],
+  RESOURCE_EXHAUSTED: [-32000, "ResourceExhausted"], // impl-defined server error range
 };
 
 export class RpcError extends Error {
@@ -52,8 +53,28 @@ const ALIASES = {
 };
 
 export function createHandlers({ store, backend, echoBackend, config, skillsById, corpora }) {
-  /** SendMessage — creates a Task, runs the backend, returns the Task immediately. */
-  async function SendMessage(params) {
+  // Admission control for backend runs. A JSON-RPC batch dispatches all its
+  // elements at once, and each SendMessage starts a backend immediately, so
+  // without a cap one 2 MB request full of messages could spawn thousands of
+  // processes. This bounds how many run concurrently; excess is refused, not
+  // queued, so memory and process slots stay bounded.
+  const MAX_CONCURRENT_BACKENDS = Number(config?.maxConcurrentBackends) || 8;
+  let activeBackends = 0;
+
+  // Task isolation. Every task remembers who created it (a peer's iss, "anon",
+  // or "public"/"owner" for the credential-free and static-token modes). A
+  // caller may only see or cancel a task it owns; the machine's own operator
+  // token ("owner") sees everything. The owner tag is non-enumerable so it is
+  // never serialised into an A2A Task on the wire.
+  const setOwner = (task, caller) => {
+    Object.defineProperty(task, "owner", { value: caller, enumerable: false, writable: true, configurable: true });
+    return task;
+  };
+  const canAccess = (task, caller) => caller === "owner" || task.owner === caller;
+
+  /** SendMessage — creates a Task, runs the backend. Blocks for a terminal state unless the caller opts out. */
+  async function SendMessage(params, ctx = {}) {
+    const caller = ctx.caller || "public";
     const message = params?.message;
     if (!message || !Array.isArray(message.parts) || message.parts.length === 0) {
       throw new RpcError(ERR.INVALID_PARAMS, "message.parts is required and must be non-empty");
@@ -71,16 +92,34 @@ export function createHandlers({ store, backend, echoBackend, config, skillsById
     const prompt = messageText(message).trim();
 
     // A message addressed to an existing task continues it — unless that task
-    // is already finished, which the spec says must be refused.
+    // is already finished, which the spec says must be refused. Continuing a
+    // task you do not own is indistinguishable, on the wire, from it not
+    // existing: same error, so an anonymous echo caller cannot smuggle its
+    // message onto someone else's in-flight task and read the result back.
     if (message.taskId) {
       const existing = store.get(message.taskId);
-      if (!existing) throw new RpcError(ERR.TASK_NOT_FOUND, message.taskId);
+      if (!existing || !canAccess(existing, caller)) throw new RpcError(ERR.TASK_NOT_FOUND, message.taskId);
       if (isTerminal(existing.status.state)) {
         throw new RpcError(
           ERR.UNSUPPORTED_OPERATION,
           `task ${message.taskId} is in terminal state ${existing.status.state}`
         );
       }
+      // A task that is already running cannot take a second concurrent message:
+      // that would spawn a second backend the store can't both track, so a
+      // cancel would orphan one. Continuation is for a paused/input-required
+      // task, not a busy one.
+      if (existing.status.state === STATE.WORKING) {
+        throw new RpcError(ERR.UNSUPPORTED_OPERATION, `task ${message.taskId} is still working — wait for it`);
+      }
+    }
+
+    // Refuse to start a new backend when too many are already running — checked
+    // and (below) incremented with no await between, so a concurrent batch can't
+    // slip past the cap. GetTask/ListTasks/CancelTask are unaffected; only work
+    // that spawns a backend is admission-controlled.
+    if (activeBackends >= MAX_CONCURRENT_BACKENDS) {
+      throw new RpcError(ERR.RESOURCE_EXHAUSTED, "too many tasks are running right now — retry shortly");
     }
 
     const skill = resolveSkill(params, prompt, skillsById, config);
@@ -100,7 +139,7 @@ export function createHandlers({ store, backend, echoBackend, config, skillsById
 
     const task = message.taskId
       ? store.get(message.taskId)
-      : store.create({ contextId: message.contextId, message: inbound });
+      : setOwner(store.create({ contextId: message.contextId, message: inbound }), caller);
     if (message.taskId) task.history.push(inbound);
 
     store.setState(task.id, STATE.WORKING);
@@ -129,6 +168,7 @@ export function createHandlers({ store, backend, echoBackend, config, skillsById
       taskId: task.id,
       onProgress: () => {},
     });
+    activeBackends++; // paired with the decrement in .finally below
     store.track(task.id, abort);
 
     // Fire-and-forget: the caller polls GetTask. Never let a backend rejection
@@ -145,8 +185,11 @@ export function createHandlers({ store, backend, echoBackend, config, skillsById
         });
       })
       .catch((err) => {
-        const canceled = /canceled/i.test(err?.message || "");
-        if (canceled) return; // cancel() already moved it to CANCELED
+        // Only skip the FAILED transition if the task was ACTUALLY canceled —
+        // read the authoritative state, don't sniff the error text. A backend
+        // that rejects with "upstream canceled the request" is a real failure,
+        // not our cancel, and must not leave the task stuck WORKING.
+        if (store.get(task.id)?.status.state === STATE.CANCELED) return;
         store.setState(task.id, STATE.FAILED, {
           message: textMessage(`Backend error: ${err.message}`, {
             taskId: task.id,
@@ -155,32 +198,53 @@ export function createHandlers({ store, backend, echoBackend, config, skillsById
           error: err.message,
         });
       })
-      .finally(() => store.done(task.id));
+      .finally(() => { activeBackends--; store.done(task.id); });
 
-    return task;
+    // v1.0.1 blocks by default: return only once the task reaches a terminal
+    // (or interrupted) state. A caller wanting fire-and-forget asks for it
+    // explicitly. Every backend is bounded by its own timeout, so the runner
+    // promise always settles — the wait is real, not a poll-and-hope cap.
+    const wantImmediate =
+      params?.configuration?.returnImmediately === true ||
+      params?.configuration?.blocking === false;
+    if (!wantImmediate) {
+      await promise.then(() => {}, () => {});
+    }
+    return store.get(task.id) || task;
   }
 
-  function GetTask(params) {
+  function GetTask(params, ctx = {}) {
+    const caller = ctx.caller || "public";
     const id = params?.id;
     if (!id) throw new RpcError(ERR.INVALID_PARAMS, "id is required");
     const task = store.get(id);
-    if (!task) throw new RpcError(ERR.TASK_NOT_FOUND, id);
+    // A task the caller doesn't own reads as absent — never confirm it exists.
+    if (!task || !canAccess(task, caller)) throw new RpcError(ERR.TASK_NOT_FOUND, id);
     return historyLimited(task, params?.historyLength);
   }
 
-  function ListTasks(params) {
+  function ListTasks(params, ctx = {}) {
+    const caller = ctx.caller || "public";
     return store.list({
       pageSize: params?.pageSize,
       pageToken: params?.pageToken,
-      state: params?.state,
+      state: params?.status ?? params?.state,
+      contextId: params?.contextId,
+      includeArtifacts: params?.includeArtifacts === true, // omitted unless explicitly requested
+      historyLength: params?.historyLength,
+      statusTimestampAfter: params?.statusTimestampAfter,
+      // The operator's own token lists everything; every other caller sees only
+      // the tasks it created.
+      owner: caller === "owner" ? undefined : caller,
     });
   }
 
-  function CancelTask(params) {
+  function CancelTask(params, ctx = {}) {
+    const caller = ctx.caller || "public";
     const id = params?.id;
     if (!id) throw new RpcError(ERR.INVALID_PARAMS, "id is required");
     const task = store.get(id);
-    if (!task) throw new RpcError(ERR.TASK_NOT_FOUND, id);
+    if (!task || !canAccess(task, caller)) throw new RpcError(ERR.TASK_NOT_FOUND, id);
     if (isTerminal(task.status.state)) {
       throw new RpcError(ERR.TASK_NOT_CANCELABLE, `task is already ${task.status.state}`);
     }
@@ -215,7 +279,9 @@ function historyLimited(task, historyLength) {
   if (historyLength === undefined || historyLength === null) return task;
   const n = Number(historyLength);
   if (!Number.isFinite(n) || n < 0) return task;
-  return { ...task, history: task.history.slice(-n) };
+  // slice(-0) === slice(0) === the whole array, so historyLength:0 must be
+  // special-cased to "no history" rather than "all of it".
+  return { ...task, history: n === 0 ? [] : task.history.slice(-n) };
 }
 
 /**
@@ -244,8 +310,20 @@ function resolveSkill(params, prompt, skillsById, config) {
   return all.find((s) => s.default) || null;
 }
 
+// Methods whose v1.0.1 response is an envelope, not the bare payload. SendMessage
+// returns SendMessageResponse { oneof { task, msg } } — a conforming client
+// (the official a2a-js transport among them) reads result.task, not result.id.
+const ENVELOPE = new Set(["SendMessage", "SendStreamingMessage"]);
+
+/** Wrap a handler result in its v1.0.1 response envelope where the spec has one. */
+export function envelopeFor(method, result) {
+  if (!ENVELOPE.has(method)) return result;
+  // We only ever produce Tasks from SendMessage, never bare Messages.
+  return { task: result };
+}
+
 /** Dispatch one JSON-RPC request object. Returns a response object, or null for notifications. */
-export async function dispatch(handlers, req) {
+export async function dispatch(handlers, req, ctx = {}) {
   const id = req && typeof req === "object" ? (req.id ?? null) : null;
 
   if (!req || typeof req !== "object" || Array.isArray(req)) {
@@ -263,9 +341,9 @@ export async function dispatch(handlers, req) {
   if (!handler) return errorResponse(id, new RpcError(ERR.METHOD_NOT_FOUND, req.method));
 
   try {
-    const result = await handler(req.params || {});
+    const result = await handler(req.params || {}, ctx);
     if (req.id === undefined) return null; // notification
-    return { jsonrpc: "2.0", id, result };
+    return { jsonrpc: "2.0", id, result: envelopeFor(method, result) };
   } catch (err) {
     if (req.id === undefined) return null;
     return errorResponse(

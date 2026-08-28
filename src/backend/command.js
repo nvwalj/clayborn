@@ -55,7 +55,10 @@ export function createCommandBackend(config) {
           argv.slice(1),
           {
             timeout: timeoutMs,
-            killSignal: "SIGTERM",
+            // SIGKILL, not SIGTERM: a wrapped tool that ignores SIGTERM would
+            // otherwise run past its deadline and could still resolve as a
+            // success. KILL cannot be caught, so the deadline is real.
+            killSignal: "SIGKILL",
             maxBuffer: MAX_OUTPUT,
             // Extra environment from the owner's config (HERMES_HOME and the
             // like) — layered over ours, never replacing it, so PATH survives.
@@ -94,7 +97,11 @@ export function createCommandBackend(config) {
         promise,
         abort: () => {
           aborted = true;
+          // Ask nicely, then insist: a tool that ignores SIGTERM is killed
+          // outright a moment later, so a cancel always actually cancels.
           child?.kill("SIGTERM");
+          const c = child;
+          setTimeout(() => { try { c?.kill("SIGKILL"); } catch { /* already gone */ } }, 2000).unref?.();
         },
       };
     },

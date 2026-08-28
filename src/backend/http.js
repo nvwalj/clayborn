@@ -51,7 +51,23 @@ export function createHttpBackend(config) {
                 : `http backend: cannot reach ${spec.url} (${e.message})`
             );
           }
-          const body = (await res.text()).slice(0, MAX_OUTPUT);
+          // Cap WHILE streaming — res.text() would buffer the entire body into
+          // memory before any slice, so a backend replying gigabytes could OOM
+          // this process before we ever truncated it.
+          let body = "";
+          const reader = res.body?.getReader();
+          if (reader) {
+            const dec = new TextDecoder();
+            let total = 0;
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              total += value.length;
+              if (total > MAX_OUTPUT) { await reader.cancel(); break; }
+              body += dec.decode(value, { stream: true });
+            }
+            body += dec.decode();
+          }
           if (!res.ok) {
             throw new Error(`http backend: ${spec.url} returned HTTP ${res.status}: ${body.slice(0, 200)}`);
           }

@@ -77,7 +77,9 @@ test("validateCard rejects the three common conformance failures", () => {
 test("SendMessage creates a task and drives it to COMPLETED", async () => {
   const { handlers } = harness();
 
-  const task = await handlers.SendMessage({ message: userMessage("hello") });
+  // Non-blocking to watch the WORKING→COMPLETED transition through GetTask;
+  // the blocking default would hand back a COMPLETED task in one call.
+  const task = await handlers.SendMessage({ message: userMessage("hello"), configuration: { blocking: false } });
   assert.ok(task.id);
   assert.ok(task.contextId, "the agent must assign a contextId when the client omits one");
   assert.equal(task.status.state, STATE.WORKING);
@@ -133,7 +135,9 @@ test("a finished task cannot be canceled or continued", async () => {
 
 test("cancel is honoured mid-flight and the state is final", async () => {
   const { handlers, store } = harness();
-  const task = await handlers.SendMessage({ message: userMessage("slow") });
+  // Non-blocking so we get the WORKING task to cancel; the default now waits
+  // for a terminal state (v1.0.1), which would complete before we could cancel.
+  const task = await handlers.SendMessage({ message: userMessage("slow"), configuration: { blocking: false } });
   const canceled = handlers.CancelTask({ id: task.id });
   assert.equal(canceled.status.state, STATE.CANCELED);
 

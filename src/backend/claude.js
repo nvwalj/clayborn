@@ -19,8 +19,15 @@ import { spawn } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
 
-// Refused unless a skill explicitly asks for them.
-const DENY_BY_DEFAULT = ["Bash", "Write", "Edit", "NotebookEdit", "WebFetch", "WebSearch", "Task"];
+// Refused unless a skill explicitly asks for them. The read-only tools
+// (Read/Glob/Grep/LS) matter as much as the writes: a corpus-grounded skill
+// answers only from passages we paste in, so a caller telling the model to
+// "ignore the passages and read /etc/…" must find no tool to obey with.
+const DENY_BY_DEFAULT = [
+  "Bash", "Write", "Edit", "MultiEdit", "NotebookEdit",
+  "Read", "Glob", "Grep", "LS",
+  "WebFetch", "WebSearch", "Task", "TodoWrite",
+];
 
 const CLAUDE_CANDIDATES = [
   process.env.CLAUDE_BIN,
@@ -57,6 +64,14 @@ export function createClaudeBackend(config) {
         "--verbose",
         "--model",
         model,
+        // Ignore the machine's ambient MCP servers entirely: the ONLY MCP
+        // surface is what a skill explicitly declares via --mcp-config below.
+        "--strict-mcp-config",
+        // And ignore ALL other ambient customizations — the owner's CLAUDE.md,
+        // skills, plugins, hooks, auto-memory. A public agent driven by a
+        // stranger's prompt must not inherit any of the operator's environment,
+        // or a "no tools" skill could still trip hooks or leak loaded context.
+        "--safe-mode",
       ];
 
       const allowed = skill?.tools || [];
@@ -65,11 +80,16 @@ export function createClaudeBackend(config) {
         const denied = DENY_BY_DEFAULT.filter((t) => !allowed.includes(t));
         if (denied.length) args.push("--disallowed-tools", denied.join(","));
       } else {
-        // No tools requested: refuse the whole default-deny set outright.
-        args.push("--disallowed-tools", DENY_BY_DEFAULT.join(","));
+        // No tools requested: turn the built-in set OFF authoritatively, not
+        // merely subtract a deny list. `--tools ""` leaves the model with no
+        // built-in tools at all.
+        args.push("--tools", "");
       }
 
-      if (skill?.mcpConfig) args.push("--mcp-config", skill.mcpConfig);
+      // MCP servers ARE tools. A skill that opted into no built-in tools does
+      // not get an MCP surface either — otherwise the no-tools promise leaks
+      // through a side door.
+      if (skill?.mcpConfig && allowed.length) args.push("--mcp-config", skill.mcpConfig);
       if (skill?.systemPrompt) args.push("--append-system-prompt", skill.systemPrompt);
 
       const child = spawn(bin, args, {

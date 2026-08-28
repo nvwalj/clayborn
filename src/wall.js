@@ -13,6 +13,7 @@
 // wall did; failures log, and the next tick retries.
 
 import { mintToken, normBase } from "./identity.js";
+import { postJson, BlockedError } from "./safefetch.js";
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -91,6 +92,34 @@ export function startWallHeartbeat({ config, identity, selfUrl, log = console.lo
 
   const why = (r) => r.json?.error?.message || `HTTP ${r.status}`;
 
+  // A wall is best-effort infrastructure we do not control; treat its list like
+  // any other network input. Bounded time AND size — an endless or gigantic
+  // /agents.json must never hang the heartbeat or exhaust the process.
+  const MAX_LIST_BYTES = 512 * 1024;
+  async function getListCapped(u) {
+    const ac = new AbortController();
+    const t = setTimeout(() => ac.abort(), CALL_TIMEOUT_MS);
+    try {
+      const res = await fetch(u, { headers: { accept: "application/json" }, signal: ac.signal, redirect: "manual" });
+      if (res.status >= 300 && res.status < 400) throw new Error("the wall redirected its list — refused");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const reader = res.body?.getReader();
+      if (!reader) return {};
+      const chunks = [];
+      let total = 0;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        total += value.length;
+        if (total > MAX_LIST_BYTES) { await reader.cancel(); throw new Error(`list over ${MAX_LIST_BYTES} bytes`); }
+        chunks.push(value);
+      }
+      return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    } finally {
+      clearTimeout(t);
+    }
+  }
+
   async function tick(first) {
     try {
       if (first) {
@@ -148,10 +177,14 @@ export function startWallHeartbeat({ config, identity, selfUrl, log = console.lo
     const friends = loadFriends();
     if (Date.now() - (friends.lastStrollAt || 0) < STROLL_GAP_MS) return;
     friends.lastStrollAt = Date.now(); // whatever happens next, one attempt per day
+    saveFriends(friends);              // persist the attempt BEFORE any network call, so a hang can't reset the clock
 
-    const listRes = await fetch(`${base}/agents.json`, { headers: { accept: "application/json" } });
-    if (!listRes.ok) return saveFriends(friends);
-    const { agents } = await listRes.json();
+    let agents;
+    try {
+      ({ agents } = await getListCapped(`${base}/agents.json`));
+    } catch (e) {
+      return log(`[stroll] could not read the wall's list: ${e.message}`);
+    }
     const preferIds = [...(meState.matches || []), ...(meState.soughtBy || [])].map((m) => m.id);
     const pick = pickStranger({ agents: agents || [], myId: meState.id, met: friends.met, preferIds });
     if (!pick) {
@@ -187,15 +220,12 @@ export function startWallHeartbeat({ config, identity, selfUrl, log = console.lo
     if (!endpoint) return { shy: "no endpoint in its card" };
     const t0 = Date.now();
     try {
-      const post = (bodyObj) =>
-        fetch(endpoint, {
-          method: "POST",
-          headers: { "content-type": "application/json", accept: "application/json" },
-          body: JSON.stringify(bodyObj),
-          signal: AbortSignal.timeout(CALL_TIMEOUT_MS),
-        }).then(async (r) => ({ status: r.status, json: await r.json().catch(() => null) }));
-
-      const sent = await post({
+      // The endpoint is copied verbatim from a stranger's card, and bumping
+      // fists is an outbound POST WE make. postJson pins DNS and refuses private
+      // or redirecting targets, so a card claiming a loopback / LAN / metadata
+      // address cannot turn our own stroll into an SSRF probe — looking at the
+      // literal hostname was not enough, the name has to be RESOLVED and checked.
+      const sent = await postJson(endpoint, {
         jsonrpc: "2.0", id: randomUUID(), method: "SendMessage",
         params: {
           metadata: { skillId: "echo" },
@@ -203,16 +233,19 @@ export function startWallHeartbeat({ config, identity, selfUrl, log = console.lo
         },
       });
       if (sent.status === 401) return { shy: "requires credentials" };
-      const taskId = sent.json?.result?.id;
+      // SendMessage's reply is the v1.0.1 envelope: the Task is at result.task.
+      const task = sent.json?.result?.task;
+      const taskId = task?.id;
       if (!taskId) return { shy: `odd reply (HTTP ${sent.status})` };
-      let state = sent.json.result.status?.state || "";
+      let state = task.status?.state || "";
       for (let i = 0; i < 5 && !/COMPLETED|FAILED|CANCELED|REJECTED/.test(state); i++) {
         await new Promise((r) => setTimeout(r, 600));
-        const got = await post({ jsonrpc: "2.0", id: randomUUID(), method: "GetTask", params: { id: taskId } });
-        state = got.json?.result?.status?.state || state;
+        const got = await postJson(endpoint, { jsonrpc: "2.0", id: randomUUID(), method: "GetTask", params: { id: taskId } });
+        state = got.json?.result?.status?.state || state; // GetTask returns a bare Task
       }
       return /COMPLETED/.test(state) ? { echoMs: Date.now() - t0 } : { shy: `echo ended ${state || "nowhere"}` };
     } catch (e) {
+      if (e instanceof BlockedError) return { shy: "its address is private or won't resolve — not reaching in" };
       return { shy: e.name === "TimeoutError" ? "timed out" : e.message.slice(0, 60) };
     }
   }

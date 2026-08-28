@@ -55,7 +55,8 @@ test("anonymous echo: the fist bump works without credentials, everything else s
       params: { metadata: { skillId: "echo" }, message: { messageId: "m", role: "ROLE_USER", parts: [{ text: "bump" }] } },
     });
     assert.equal(sent.status, 200);
-    const taskId = sent.json.result.id;
+    // SendMessage's reply is the v1.0.1 envelope: the Task is at result.task.
+    const taskId = sent.json.result.task.id;
     assert.ok(taskId);
 
     // 2. the same anonymous caller can poll THAT task

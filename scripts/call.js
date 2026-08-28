@@ -100,28 +100,38 @@ const message = {
   role: "ROLE_USER",
   parts: [{ text: args.message }],
 };
-const params = { message };
+// Return immediately and poll ourselves: the server now BLOCKS by default until
+// terminal, which for a long task would outlast this client's per-call timeout.
+const params = { message, configuration: { blocking: false } };
 if (args.skill) params.metadata = { skillId: args.skill };
 
-const task = await rpc("SendMessage", params);
+const sent = await rpc("SendMessage", params);
+// SendMessage's result is the v1.0.1 envelope { task }; fall back to a bare
+// task for any agent still on the old shape.
+let task = sent?.task || sent;
 console.log(`  task ${task.id} → ${task.status.state}`);
+
+const finish = (t) => {
+  if (/COMPLETED/.test(t.status.state)) {
+    const text = t.artifacts?.[0]?.parts?.map((p) => p.text).filter(Boolean).join("\n") || "(no text)";
+    // Exit only once stdout has drained — console.log + an immediate
+    // process.exit(0) truncates a large piped answer mid-buffer.
+    process.stdout.write(`\n${text.replace(/^/gm, "  ")}\n`, () => process.exit(0));
+    return;
+  }
+  die(`${t.status.state}${t.metadata?.error ? `: ${t.metadata.error}` : ""}`);
+};
 
 const deadline = Date.now() + (args.timeout || 120) * 1000;
 let state = task.status.state;
 while (!/COMPLETED|FAILED|CANCELED|REJECTED/.test(state)) {
   if (Date.now() > deadline) die(`timed out in ${state}`);
   await new Promise((r) => setTimeout(r, 1500));
-  const t = await rpc("GetTask", { id: task.id });
-  if (t.status.state !== state) {
-    state = t.status.state;
+  task = await rpc("GetTask", { id: task.id });
+  if (task.status.state !== state) {
+    state = task.status.state;
     console.log(`  … ${state}`);
   }
-  if (/COMPLETED/.test(state)) {
-    const text = t.artifacts?.[0]?.parts?.map((p) => p.text).filter(Boolean).join("\n") || "(no text)";
-    console.log(`\n${text.replace(/^/gm, "  ")}\n`);
-    process.exit(0);
-  }
-  if (/FAILED|CANCELED|REJECTED/.test(state)) {
-    die(`${state}${t.metadata?.error ? `: ${t.metadata.error}` : ""}`);
-  }
 }
+// Terminal — whether the initial reply was already terminal or we polled to it.
+finish(task);
