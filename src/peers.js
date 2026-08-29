@@ -88,20 +88,22 @@ export function createPeerVerifier({ config, getSelfUrl, log = console.log, fetc
   let inflightCount = 0;
   const inflight = new Map(); // base -> Promise<keys>
 
+  // Returns { keys, fetched } — `fetched` false only for a live cache hit, so
+  // the caller caches (and re-stamps the TTL) ONLY on a genuine fetch.
   async function getKeys(base, allowPrivate, { refresh = false } = {}) {
     if (!refresh) {
       const cached = jwksCache.get(base);
-      if (cached && Date.now() - cached.at < JWKS_TTL_MS) return cached.keys;
+      if (cached && Date.now() - cached.at < JWKS_TTL_MS) return { keys: cached.keys, fetched: false };
     }
     const shared = inflight.get(base);
-    if (shared) return shared;
+    if (shared) return shared.then((keys) => ({ keys, fetched: true }));
     if (inflightCount >= MAX_INFLIGHT) throw new Error("key-fetch capacity reached — retry shortly");
     inflightCount++;
     const p = Promise.resolve()
       .then(() => fetchUncached(base, allowPrivate)) // committed to cache only on a verified signature
       .finally(() => { inflightCount--; inflight.delete(base); });
     inflight.set(base, p);
-    return p;
+    return p.then((keys) => ({ keys, fetched: true }));
   }
 
   // Returns "ok" | "replay" | "full". Fails closed at saturation: it never
@@ -176,8 +178,11 @@ export function createPeerVerifier({ config, getSelfUrl, log = console.log, fetc
 
       const allowPrivate = mode === "allowlist" ? true : anyonePrivateOk;
       let keys;
+      let fetched = false;
       try {
-        keys = await getKeys(iss, allowPrivate);
+        const r = await getKeys(iss, allowPrivate);
+        keys = r.keys;
+        fetched = r.fetched;
       } catch (e) {
         const why = e instanceof BlockedError ? `refused to fetch keys: ${e.message}` : `keys unreachable: ${e.message}`;
         return { ok: false, reason: `${iss} — ${why}` };
@@ -187,7 +192,7 @@ export function createPeerVerifier({ config, getSelfUrl, log = console.log, fetc
       const pick = (ks) => ks.find((k) => k.kid === decoded.header.kid) || null;
       let jwk = pick(keys);
       if (!jwk && decoded.header.kid && !fetchJwks) {
-        try { keys = await getKeys(iss, allowPrivate, { refresh: true }); jwk = pick(keys); }
+        try { const r = await getKeys(iss, allowPrivate, { refresh: true }); keys = r.keys; fetched = fetched || r.fetched; jwk = pick(keys); }
         catch { /* keep the keys we have */ }
       }
       // A kid miss is not "no key": try every published Ed25519 key rather than
@@ -202,7 +207,10 @@ export function createPeerVerifier({ config, getSelfUrl, log = console.log, fetc
       if (reserved === "replay") return { ok: false, reason: "token replayed" };
       if (reserved === "full") return { ok: false, reason: "replay cache saturated — retry shortly" };
 
-      cacheKeys(iss, keys); // only a verified issuer earns a place in the cache
+      // Cache ONLY a fresh fetch. Re-stamping on a cache hit would let a token
+      // holder keep an entry alive indefinitely by verifying every few minutes,
+      // so a key the issuer has since revoked would never be re-fetched away.
+      if (fetched) cacheKeys(iss, keys);
       return { ok: true, iss, kid: good.kid || thumbprint(good) };
     },
   };
