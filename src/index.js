@@ -100,6 +100,9 @@ export function loadConfig(file, log = console.log) {
     } catch {
       throw new Error(`config.wall.url is not a URL: ${JSON.stringify(config.wall.url)}`);
     }
+    if (config.wall.ref !== undefined && (typeof config.wall.ref !== "string" || !/^[a-z0-9_-]{1,32}$/.test(config.wall.ref))) {
+      throw new Error("config.wall.ref must be a short channel id matching [a-z0-9_-]{1,32}");
+    }
   }
   if (config.seeking) {
     const s = config.seeking;

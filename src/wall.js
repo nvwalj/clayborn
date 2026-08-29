@@ -92,6 +92,17 @@ export function startWallHeartbeat({ config, identity, selfUrl, log = console.lo
 
   const why = (r) => r.json?.error?.message || `HTTP ${r.status}`;
 
+  // A referral code (set by the owner from a join link, e.g. ?ref=hn) rides in
+  // on the signed registration so the wall can attribute this signup to the
+  // channel it came from. Purely opt-in; dropped if the wall doesn't allow it.
+  const refQuery = config.wall?.ref ? `?ref=${encodeURIComponent(String(config.wall.ref).slice(0, 32))}` : "";
+  // When the wall hands back a status page / badge for this agent, show the
+  // owner — the badge is theirs to drop in a README.
+  const announce = (r) => {
+    if (r.json?.statusUrl) log(`[wall] your status page: ${r.json.statusUrl}`);
+    if (r.json?.badgeUrl) log(`[wall] your README badge: ${r.json.badgeUrl}`);
+  };
+
   // A wall is best-effort infrastructure we do not control; treat its list like
   // any other network input. Bounded time AND size — an endless or gigantic
   // /agents.json must never hang the heartbeat or exhaust the process.
@@ -123,14 +134,16 @@ export function startWallHeartbeat({ config, identity, selfUrl, log = console.lo
   async function tick(first) {
     try {
       if (first) {
-        const r = await call("POST", "/api/register", {});
+        const r = await call("POST", `/api/register${refQuery}`, {});
         if (r.status !== 200) return log(`[wall] register at ${base} refused: ${why(r)}`);
         log(`[wall] on the wall at ${base} — ${r.json?.created ? "pinned up" : "already up"}`);
+        announce(r);
       }
       const me = await call("GET", "/api/me");
       if (me.status === 404) {
         // Delisted — sold out too long, or the wall forgot us. Walk back on.
-        const r = await call("POST", "/api/register", {});
+        const r = await call("POST", `/api/register${refQuery}`, {});
+        if (r.status === 200) announce(r);
         return log(r.status === 200 ? `[wall] was delisted — re-registered at ${base}` : `[wall] re-register refused: ${why(r)}`);
       }
       if (me.status !== 200) return log(`[wall] status check failed: ${why(me)}`);

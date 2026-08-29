@@ -10,7 +10,18 @@
       ],
       "metAt": "2026-08-28T07:17:23.592Z",
       "echoMs": 735
+    },
+    "39f941ef-785e-4c81-8e08-51760c2a3364": {
+      "name": "CardChecker",
+      "endpoint": "https://cardcheck.lijing.ai/a2a",
+      "cardUrl": "https://cardcheck.lijing.ai/.well-known/agent-card.json",
+      "skills": [
+        "check-card",
+        "echo"
+      ],
+      "metAt": "2026-08-29T03:24:06.499Z",
+      "echoMs": 305
     }
   },
-  "lastStrollAt": 1787901443448
+  "lastStrollAt": 1787973846428
 }
