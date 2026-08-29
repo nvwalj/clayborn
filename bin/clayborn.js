@@ -12,7 +12,7 @@ import path from "node:path";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
 import { spawn, execFileSync } from "node:child_process";
-import { existsSync, copyFileSync, writeFileSync } from "node:fs";
+import { existsSync, copyFileSync, writeFileSync, readFileSync } from "node:fs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const [cmd, ...rest] = process.argv.slice(2);
@@ -227,10 +227,28 @@ if (!cmd || cmd === "help" || cmd === "--help" || cmd === "-h") {
     process.exit(1);
   }
   const forWhat = rest[rest.indexOf("--for") + 1];
+  // Optional wall wiring, so one-line onboarding can drop the agent onto a wall
+  // (and carry a ?ref= channel) without hand-editing the config afterwards.
+  // Accepts --wall <url> [--ref <channel>], and also lifts ?ref= out of the URL.
+  const wallConfig = (() => {
+    if (!rest.includes("--wall")) return null;
+    const raw = rest[rest.indexOf("--wall") + 1];
+    if (!raw) return null;
+    let url = raw, ref = rest.includes("--ref") ? rest[rest.indexOf("--ref") + 1] : null;
+    try {
+      const u = new URL(raw);
+      if (!ref && u.searchParams.get("ref")) ref = u.searchParams.get("ref");
+      url = u.origin + u.pathname.replace(/\/+$/, "");
+    } catch { /* not a URL — leave as typed; loadConfig will validate it */ }
+    const w = { url };
+    if (ref && /^[a-z0-9_-]{1,32}$/.test(ref)) w.ref = ref;
+    return w;
+  })();
   const PRESETS = { openclaw: openclawPreset, hermes: hermesPreset, zeroclaw: zeroclawPreset, picoclaw: picoclawPreset, nanoclaw: nanoclawPreset };
   if (rest.includes("--for") && PRESETS[forWhat]) {
     const preset = PRESETS[forWhat]();
     if (!preset) process.exit(1);
+    if (wallConfig) preset.config.wall = wallConfig;
     writeFileSync(target, JSON.stringify(preset.config, null, 2) + "\n");
     console.log(`wrote clayborn.config.json bridging ${preset.what}`);
     console.log("");
@@ -281,9 +299,17 @@ if (!cmd || cmd === "help" || cmd === "--help" || cmd === "-h") {
         "Your skill answers by echo until you pick a backend (claude/command/http — see README). " +
         'Go public with ingress quick/named; join a wall with "wall": {"url": "https://cardwall.ai"}.',
     };
+    if (wallConfig) config.wall = wallConfig;
     writeFileSync(target, JSON.stringify(config, null, 2) + "\n");
     console.log(`\nwrote clayborn.config.json — ${name}, with the skill "${skillName}".`);
     console.log("It answers by echo until you pick a real backend. Then:  clayborn start");
+  } else if (wallConfig) {
+    // Same inert example, but with the wall wired in from the flags.
+    const example = JSON.parse(readFileSync(path.join(ROOT, "clayborn.config.example.json"), "utf8"));
+    example.wall = wallConfig;
+    writeFileSync(target, JSON.stringify(example, null, 2) + "\n");
+    console.log("wrote clayborn.config.json — echo backend, no ingress, joined to " + wallConfig.url + ".");
+    console.log("edit it (name, skills, ingress), then:  clayborn start");
   } else {
     copyFileSync(path.join(ROOT, "clayborn.config.example.json"), target);
     console.log("wrote clayborn.config.json — echo backend, no ingress, safe to run exactly as it is.");
