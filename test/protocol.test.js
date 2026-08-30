@@ -61,8 +61,18 @@ test("validateCard rejects the three common conformance failures", () => {
   const arrayCaps = { ...good, capabilities: ["streaming"] };
   assert.match(validateCard(arrayCaps).errors.join(" "), /capabilities must be an object/);
 
-  const oldField = { ...good, additionalInterfaces: [] };
-  assert.match(validateCard(oldField).errors.join(" "), /pre-1\.0/);
+  // A valid v1.0 card that ALSO keeps the pre-1.0 `additionalInterfaces` for
+  // back-compat is still v1.0-shaped — a warning, not a rejection.
+  const legacyExtra = { ...good, additionalInterfaces: [] };
+  const legacyRes = validateCard(legacyExtra);
+  assert.equal(legacyRes.ok, true, "keeping additionalInterfaces alongside a valid supportedInterfaces is not a reject");
+  assert.match(legacyRes.warnings.join(" "), /pre-1\.0/);
+
+  // A genuinely pre-1.0 card — no supportedInterfaces, uses old top-level `url` —
+  // IS rejected (we require v1.0), flagged simply as pre-1.0.
+  const pre10 = { ...good, url: "https://agent.example.com/a2a" };
+  delete pre10.supportedInterfaces;
+  assert.match(validateCard(pre10).errors.join(" "), /pre-1\.0/);
 
   const relative = {
     ...good,

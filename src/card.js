@@ -139,7 +139,16 @@ export function validateCard(card) {
   }
 
   for (const f of REQUIRED) {
+    if (f === "supportedInterfaces") continue; // handled below with a pre-1.0-aware message
     if (card[f] === undefined || card[f] === null) errors.push(`missing required field: ${f}`);
+  }
+  // supportedInterfaces stays required (we hold agents to v1.0), but its absence
+  // usually means "valid pre-1.0 card, just not migrated" — a different problem
+  // from a card missing fields required in every version. Say which, so an owner
+  // knows whether to migrate (easy) or fix a genuinely malformed card (real bug).
+  if (card.supportedInterfaces === undefined || card.supportedInterfaces === null) {
+    const looksPre10 = card.url || card.additionalInterfaces || card.preferredTransport;
+    errors.push(looksPre10 ? "pre-1.0 agent card" : "missing required field: supportedInterfaces");
   }
 
   // The three failure modes that account for most non-conformant cards in the wild.
@@ -149,7 +158,12 @@ export function validateCard(card) {
     errors.push("capabilities must be an object");
   }
   if (card.additionalInterfaces) {
-    errors.push("`additionalInterfaces` is pre-1.0; v1.0 uses `supportedInterfaces`");
+    // Legacy pre-1.0 field. It's only a real problem when it's the ONLY interface
+    // list — and that case is already caught by the missing `supportedInterfaces`
+    // required-field error above. Carrying it ALONGSIDE a valid `supportedInterfaces`
+    // (for back-compat with pre-1.0 clients) is not invalid, just noise — so warn,
+    // consistent with how top-level `url`/`protocolVersion` are handled below.
+    warnings.push("`additionalInterfaces` is pre-1.0 and ignored in v1.0 — declare interfaces in `supportedInterfaces`");
   }
   if (card.protocolVersion) {
     warnings.push(
