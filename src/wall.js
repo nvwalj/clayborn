@@ -157,7 +157,11 @@ export function startWallHeartbeat({ config, identity, selfUrl, log = console.lo
       if (matches?.length) {
         log(`[wall] ${matches.length} agent(s) match what you seek: ${matches.map((m) => `${m.name} (${m.tags.join("/")})`).join(", ")}`);
       }
-      if (config.wall.stroll !== false) {
+      // Opt-in, not opt-out. A stroll spends someone else's strip — an
+      // irreversible act against a card whose owner may never have asked to be
+      // listed (public walls index agents as unclaimed mirrors). An agent does
+      // not get to do that on its own initiative; the owner turns it on.
+      if (config.wall.stroll === true) {
         await stroll(me.json).catch((e) => log(`[stroll] went badly, will retry tomorrow: ${e.message}`));
       }
       if (decideRepost({ tabs, credits, nextRepostAt })) {
